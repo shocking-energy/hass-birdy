@@ -622,6 +622,21 @@ class HaMaster:
         if not isinstance(shape_payload, dict):
             return
 
+        # The master Pi stamps publish_lan_snapshot's response forecast
+        # values into snapshot.meta.{solarForecastTodayKwh,
+        # houseExpectedDailyKwh} for the kiosk's <actual>/<expected>
+        # panels. Lift them into _forecast so the same two HA sensors
+        # populate on the monitor side too — same data, no separate
+        # RPC round-trip needed.
+        meta = shape_payload.get("meta") if isinstance(shape_payload, dict) else None
+        if isinstance(meta, dict):
+            self._forecast["solar_today_kwh"] = _coerce_float(
+                meta.get("solarForecastTodayKwh")
+            )
+            self._forecast["house_daily_kwh"] = _coerce_float(
+                meta.get("houseExpectedDailyKwh")
+            )
+
         now = datetime.now(timezone.utc)
         # Track the source-of-truth age separately on _last_modbus_ok_at
         # so the freshness sensor still reflects when the master wrote.
