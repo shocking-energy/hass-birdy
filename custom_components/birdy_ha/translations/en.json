@@ -3,7 +3,10 @@
     "step": {
       "user": {
         "title": "Birdy",
-        "description": "After clicking Submit, open shocking.energy on the same network as this HA instance. A banner will appear offering to adopt this Home Assistant as your account's master device."
+        "description": "Birdy normally syncs your data to a Shocking Energy account so the cloud dashboard, the AI assistant, and solar forecasts work across all your devices. After clicking Submit, open shocking.energy on the same network as this HA instance and click Adopt on the banner that appears.\n\nIf you'd rather keep everything on your LAN, tick the Local mode box below. Birdy will read your inverter directly and expose the same Home Assistant entities, but the cloud dashboard, AI assistant, and forecast values will be unavailable.",
+        "data": {
+          "local_only": "Local mode (no Shocking Energy account)"
+        }
       },
       "manual_host": {
         "title": "Inverter LAN address",

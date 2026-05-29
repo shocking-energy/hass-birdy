@@ -59,6 +59,7 @@ class BirdyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._cloud: Optional[CloudClient] = None
         self._inverter_serial: Optional[str] = None
         self._is_monitor: bool = False
+        self._local_only: bool = False
 
     # ─── Step 1: intro + bootstrap ───────────────────────────────────
 
@@ -67,18 +68,27 @@ class BirdyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="single_instance_allowed")
 
         if user_input is None:
-            # Description text now lives in translations/en.json — no
-            # placeholder needed. Previously this passed `next_step`
-            # via description_placeholders, but the error path below
-            # re-shows the same step_id without that key and triggered
-            # a MISSING_VALUE render error in HA's intl formatter.
             return self.async_show_form(
                 step_id="user",
-                data_schema=vol.Schema({}),
+                data_schema=self._user_schema(),
             )
 
-        # Generate ID, bootstrap, sign in.
+        self._local_only = bool(user_input.get("local_only"))
         self._integration_id = str(uuid.uuid4())
+
+        if self._local_only:
+            # Local mode: no Shocking Energy account, no telemetry
+            # leaves the LAN, no AI assistant or forecast values.
+            # Skip bootstrap + adoption entirely; just find the
+            # inverter and finalise the entry.
+            host = await async_scan_for_dongle()
+            if host:
+                self._inverter_host = host
+                return self._finalize_local()
+            return await self.async_step_manual_host()
+
+        # Cloud mode (default): bootstrap a per-install auth user,
+        # sign in, then run the LAN scan + adopt-via-egress-IP flow.
         self._cloud = CloudClient()
         await self._cloud.async_start()
 
@@ -91,7 +101,7 @@ class BirdyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.error("bootstrap failed: %s", exc)
             return self.async_show_form(
                 step_id="user",
-                data_schema=vol.Schema({}),
+                data_schema=self._user_schema(),
                 errors={"base": "cannot_connect"},
                 description_placeholders={"error": str(exc)},
             )
@@ -106,6 +116,35 @@ class BirdyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # LAN scan found nothing — fall through to manual host entry.
         return await self.async_step_manual_host()
+
+    @staticmethod
+    def _user_schema():
+        """Schema for the first step.
+
+        Single optional `local_only` checkbox. Default False → cloud
+        mode (matches the existing onboarding experience for everyone
+        who started before 0.11.0). Checking it skips every cloud
+        round-trip; the integration runs from local Modbus only.
+        """
+        return vol.Schema(
+            {vol.Optional("local_only", default=False): bool}
+        )
+
+    def _finalize_local(self) -> FlowResult:
+        """Create the config entry for a local-only install.
+
+        No bootstrap, no auth user, no tenant binding. The runtime
+        reads `local_only` from entry.data and skips every cloud
+        path. Modbus polling + control writes still go LAN-direct.
+        """
+        return self.async_create_entry(
+            title="Birdy",
+            data={
+                CONF_INTEGRATION_ID: self._integration_id,
+                CONF_INVERTER_HOST: self._inverter_host,
+                "local_only": True,
+            },
+        )
 
     # ─── Step 2a: manual host (LAN scan failed) ──────────────────────
 
@@ -127,6 +166,8 @@ class BirdyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             )
         self._inverter_host = user_input[CONF_INVERTER_HOST].strip()
+        if self._local_only:
+            return self._finalize_local()
         return await self.async_step_wait_for_adopt()
 
     # ─── Step 3: wait for adopt (background) ─────────────────────────
