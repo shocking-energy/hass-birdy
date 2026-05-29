@@ -121,6 +121,14 @@ class HaMaster:
         self._hass = hass
         self._entry = entry
 
+        # Local mode skips every cloud interaction: no bootstrap, no
+        # tenant binding, no publish, no role refresh, no diagnostics
+        # push. The runtime synthesises a "master" role locally so the
+        # poll loop always runs the Modbus path, and write entities
+        # treat the install as authorised to control. Flag set by the
+        # config_flow's local_only checkbox (commit 1 of 0.11.0).
+        self._local_only: bool = bool(entry.data.get("local_only"))
+
         integration_id = entry.data.get(CONF_INTEGRATION_ID) or str(uuid.uuid4())
         self.binding = InverterBinding(integration_id=integration_id)
         # Restore the inverter identity from entry.data if a previous
@@ -171,20 +179,43 @@ class HaMaster:
     async def async_start(self) -> None:
         """Initialise the master.
 
-        Idempotent steps: bootstrap (if no refresh token) → sign-in →
-        discover → claim. Schedules background tasks. Does NOT block on
-        the first poll cycle so HA's setup is fast.
-        """
-        await self._cloud.async_start()
+        Cloud mode: bootstrap (if no refresh token) → sign-in →
+        discover → claim. Schedules background tasks.
 
-        await self._ensure_credentials()
+        Local mode (`local_only=True`): skip every cloud step. Synthesise
+        a "master" binding (no tenant, no auth user) and just connect
+        the Modbus transport. Only the poll loop is scheduled — the
+        role-refresh and diagnostics loops would have nothing to talk
+        to.
+        """
         await self._ensure_transport()
+
+        if self._local_only:
+            self._synthesise_local_binding()
+            self._tasks.append(asyncio.create_task(self._poll_loop()))
+            return
+
+        await self._cloud.async_start()
+        await self._ensure_credentials()
         await self._initial_discovery_and_claim()
 
         # Background tasks.
         self._tasks.append(asyncio.create_task(self._poll_loop()))
         self._tasks.append(asyncio.create_task(self._role_refresh_loop()))
         self._tasks.append(asyncio.create_task(self._diagnostics_loop()))
+
+    def _synthesise_local_binding(self) -> None:
+        """Set the in-memory binding to a self-declared master.
+
+        The cloud server normally tells us our role; in local mode the
+        cloud isn't reachable. We declare master so the poll loop runs
+        the Modbus path, settings writes accept, and the role
+        diagnostic shows "local" (handled in sensor.py). tenant_id
+        stays None — there's no tenant to belong to.
+        """
+        self.binding.tenant_id = None
+        self.binding.role = PublisherRole.MASTER
+        self.binding.state = BindingState.PUBLISHING
 
     async def async_stop(self) -> None:
         self._stop_event.set()
@@ -590,8 +621,9 @@ class HaMaster:
             except Exception:
                 _LOGGER.exception("reading listener crashed")
 
-        # Publish if master + adopted.
-        if self.binding.can_publish:
+        # Publish if master + adopted. Local mode never publishes —
+        # by definition nothing leaves the LAN.
+        if not self._local_only and self.binding.can_publish:
             await self._publish_safe(self._latest_shape, readings)
 
     async def _poll_once_monitor(self) -> None:
