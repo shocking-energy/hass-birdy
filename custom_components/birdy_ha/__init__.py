@@ -75,6 +75,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _controls_enabled(),
     )
 
+    # Serve the package's icon at /birdy_ha/icon.png so the entity
+    # platforms can reference it as `entity_picture` and have HA
+    # render the hand-drawn Birdy face on the device card. The brands
+    # repo (brands.home-assistant.io) is the proper home for the
+    # Add-Integration list icon — that needs a separate PR — but
+    # this in-package serve covers the device + entity surface that
+    # users actually look at day-to-day.
+    await _register_icon_static_path(hass)
+
     master = HaMaster(hass, entry)
     try:
         await master.async_start()
@@ -172,3 +181,35 @@ async def async_remove_config_entry_device(
     a wrongful delete is self-healing.
     """
     return True
+
+
+_ICON_STATIC_PATH = "/birdy_ha/icon.png"
+_ICON_REGISTERED = False
+
+
+async def _register_icon_static_path(hass: HomeAssistant) -> None:
+    """Mount the package-bundled icon at /birdy_ha/icon.png.
+
+    Done once per HA process. The path is hardcoded so all entities
+    + the device card can point at it deterministically. Cache headers
+    are on because the icon never changes between releases except
+    when we bump the integration version (HACS clears the cache then).
+    """
+    global _ICON_REGISTERED
+    if _ICON_REGISTERED:
+        return
+    import os
+    icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+    if not os.path.exists(icon_path):
+        _LOGGER.warning("icon.png missing at %s — device card falls back to default", icon_path)
+        return
+    try:
+        from homeassistant.components.http import StaticPathConfig
+        await hass.http.async_register_static_paths([
+            StaticPathConfig(_ICON_STATIC_PATH, icon_path, True),
+        ])
+    except ImportError:  # pragma: no cover - older HA core
+        # 2023.11 fallback — sync register_static_path was the only API.
+        hass.http.register_static_path(_ICON_STATIC_PATH, icon_path, True)
+    _ICON_REGISTERED = True
+    _LOGGER.debug("registered Birdy icon at %s", _ICON_STATIC_PATH)

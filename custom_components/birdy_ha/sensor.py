@@ -189,9 +189,18 @@ class _DiagnosticBase(SensorEntity):
         self._entry_id = entry_id
 
 
+# Master-state diagnostics get the Birdy entity_picture so the device
+# card carries the brand mark next to the integration's identity rows.
+# Battery + forecast diagnostics deliberately don't — they have
+# semantic mdi icons (battery-heart, weather-sunny, etc.) and replacing
+# those with the same Birdy face on every row would hide the meaning.
+_BIRDY_ICON_URL = "/birdy_ha/icon.png"
+
+
 class DiagnosticRoleSensor(_DiagnosticBase):
     _attr_name = "Role"
     _attr_icon = "mdi:account-key"
+    _attr_entity_picture = _BIRDY_ICON_URL
 
     def __init__(self, master, device_info, entry_id):
         super().__init__(master, device_info, entry_id)
@@ -207,6 +216,7 @@ class DiagnosticLastPublishedSensor(_DiagnosticBase):
     _attr_name = "Last published"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_icon = "mdi:upload"
+    _attr_entity_picture = _BIRDY_ICON_URL
 
     def __init__(self, master, device_info, entry_id):
         super().__init__(master, device_info, entry_id)
@@ -220,6 +230,7 @@ class DiagnosticLastPublishedSensor(_DiagnosticBase):
 class DiagnosticIntegrationVersionSensor(_DiagnosticBase):
     _attr_name = "Integration version"
     _attr_icon = "mdi:tag"
+    _attr_entity_picture = _BIRDY_ICON_URL
 
     def __init__(self, master, device_info, entry_id):
         super().__init__(master, device_info, entry_id)
@@ -239,6 +250,7 @@ class DiagnosticTenantIdSensor(_DiagnosticBase):
     # vocabulary used in the backend (pi_publisher_bindings.tenant_id).
     _attr_name = "Account ID"
     _attr_icon = "mdi:identifier"
+    _attr_entity_picture = _BIRDY_ICON_URL
 
     def __init__(self, master, device_info, entry_id):
         super().__init__(master, device_info, entry_id)
