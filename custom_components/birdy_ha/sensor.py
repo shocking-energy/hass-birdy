@@ -231,7 +231,13 @@ class DiagnosticIntegrationVersionSensor(_DiagnosticBase):
 
 
 class DiagnosticTenantIdSensor(_DiagnosticBase):
-    _attr_name = "Tenant ID"
+    # User-facing label uses customer-friendly framing ("account"); the
+    # underlying class + unique_id + entity_id stay `tenant_id` so the
+    # entity registry row doesn't churn (renaming unique_id orphans
+    # existing recorder history). README + UI consistently say
+    # "Account ID"; only the internal Python name reveals the tenant
+    # vocabulary used in the backend (pi_publisher_bindings.tenant_id).
+    _attr_name = "Account ID"
     _attr_icon = "mdi:identifier"
 
     def __init__(self, master, device_info, entry_id):
