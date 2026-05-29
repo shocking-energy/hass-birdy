@@ -1,0 +1,39 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Birdy",
+        "description": "{next_step}"
+      },
+      "manual_host": {
+        "title": "Inverter LAN address",
+        "description": "{hint}",
+        "data": {
+          "inverter_host": "Inverter IP address"
+        }
+      },
+      "claim_code": {
+        "title": "Claim code",
+        "description": "{hint}",
+        "data": {
+          "claim_code": "Claim code"
+        }
+      },
+      "existing_master": {
+        "title": "Existing master detected",
+        "description": "{hint}"
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to Birdy: {error}",
+      "modbus_unreachable": "Could not reach the inverter at this address: {error}",
+      "no_serial": "Connected to the inverter but could not read its serial number.",
+      "claim_code_not_implemented": "{hint}",
+      "existing_master_present": "{hint}"
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Birdy integration per HA instance is supported.",
+      "invalid_state": "The config flow entered an invalid state. Please restart and try again."
+    }
+  }
+}
