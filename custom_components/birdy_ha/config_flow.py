@@ -267,16 +267,31 @@ class BirdyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._is_monitor = True
             return self.async_show_form(
                 step_id="existing_master",
-                data_schema=vol.Schema({}),
-                errors={"base": "existing_master_present"},
+                data_schema=vol.Schema(
+                    {
+                        # Default False → unchecked submit just re-checks
+                        # the role (the original "demote then click
+                        # Submit" path). Checking the box accepts the
+                        # current monitor binding and finalises the
+                        # config entry; the runtime then reads from
+                        # cloud and stays out of Modbus contention.
+                        vol.Optional("accept_monitor", default=False): bool,
+                    }
+                ),
                 description_placeholders={
                     "hint": (
-                        "Your tenant already has a master device (likely "
-                        "a Pi). Home Assistant has been adopted as a "
-                        "monitor and won't publish telemetry. Open the "
-                        "admin panel at admin.shocking.energy → Pis → "
-                        "demote the existing master, then reload this "
-                        "integration."
+                        "Your account already has a master device (likely a "
+                        "Pi or another HA install). Birdy has been adopted "
+                        "as a monitor.\n\n"
+                        "• To run as MASTER: open admin.shocking.energy → "
+                        "Pis, demote the existing master, then click "
+                        "Submit (leave the box unchecked).\n\n"
+                        "• To stay as MONITOR: check the box below and "
+                        "Submit. Birdy will read live data from the cloud "
+                        "(no Modbus polling, no telemetry publish). You "
+                        "can promote it to master later via the admin panel "
+                        "and Birdy will pick up the role change within "
+                        "60 s — no reinstall needed."
                     ),
                 },
             )
@@ -293,9 +308,36 @@ class BirdyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_existing_master(self, user_input=None) -> FlowResult:
-        # User clicked "Submit" after demoting. Re-check role.
+        # Two submit paths from the existing-master form:
+        #   accept_monitor=True  → finalise the entry now as monitor
+        #   accept_monitor=False → re-check role (user demoted; want master)
         if self._cloud is None:
             return self.async_abort(reason="invalid_state")
+
+        if user_input and user_input.get("accept_monitor"):
+            # Resolve tenant_id (best-effort) and finalise. Runtime
+            # picks up any later promotion within 60 s via the role
+            # refresh loop — no reinstall needed.
+            tenant_id: Optional[str] = None
+            if self._inverter_serial:
+                try:
+                    tenant_id = await self._cloud.claim_pi_by_serial(
+                        self._inverter_serial,
+                    )
+                except Exception as exc:  # pragma: no cover - logged only
+                    _LOGGER.warning(
+                        "accept_monitor: tenant_id re-resolve failed: %s",
+                        exc,
+                    )
+            entry_data: dict[str, Any] = {
+                CONF_INTEGRATION_ID: self._integration_id,
+                CONF_INVERTER_HOST: self._inverter_host,
+                "refresh_token": self._refresh_token,
+            }
+            if tenant_id:
+                entry_data["tenant_id"] = tenant_id
+            return self.async_create_entry(title="Birdy", data=entry_data)
+
         try:
             role = await self._cloud.get_my_pi_role()
         except Exception as exc:

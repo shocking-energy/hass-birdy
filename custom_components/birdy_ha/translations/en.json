@@ -21,7 +21,10 @@
       },
       "existing_master": {
         "title": "Existing master detected",
-        "description": "{hint}"
+        "description": "{hint}",
+        "data": {
+          "accept_monitor": "Continue as monitor"
+        }
       }
     },
     "error": {
