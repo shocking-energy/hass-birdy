@@ -208,6 +208,11 @@ class DiagnosticRoleSensor(_DiagnosticBase):
 
     @property
     def native_value(self) -> Optional[str]:
+        # Local installs have no server-side role; the runtime
+        # synthesises master internally but "local" is what the user
+        # should see — there's no tenant/master/monitor concept here.
+        if getattr(self._master, "_local_only", False):
+            return "local"
         role = self._master.binding.role
         return role.value if role else None
 
@@ -258,6 +263,10 @@ class DiagnosticTenantIdSensor(_DiagnosticBase):
 
     @property
     def native_value(self) -> Optional[str]:
+        # Local mode has no tenant. Show a label that explains why
+        # rather than just "unknown" — saves a forum thread.
+        if getattr(self._master, "_local_only", False):
+            return "local install"
         return self._master.binding.tenant_id
 
 
