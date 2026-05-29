@@ -10,14 +10,30 @@ HA (13 read-only sensors, 16 inverter controls, 6 battery diagnostics,
 2 forecast values, 6 status/diagnostic entities) for use in dashboards and
 automations.
 
+## Two install modes
+
+Since 0.11.0 Birdy supports two install modes — pick at first-run:
+
+- **Cloud-attached (default)** — Birdy syncs your data to a Shocking Energy
+  account. Unlocks the cloud dashboard at <https://app.shocking.energy>, the
+  Birdy AI assistant, today's solar forecast + expected-daily-house values
+  for automations, and multi-device data sharing (Pi + HA + phone seeing the
+  same numbers).
+- **Local mode** — tick the *Local mode* box on the intro screen. No account,
+  no telemetry leaves your LAN. You get the same 41 Home Assistant entities
+  (13 read sensors, 16 inverter controls, 6 battery diagnostics, 6 status
+  diagnostics) and full local control. You don't get the cloud dashboard, the
+  AI assistant, or the 2 forecast values. Swap to cloud mode later by
+  re-adding the integration.
+
 ## Requirements
 
 - Home Assistant **2023.11.0** or newer (uses the `time` entity).
 - LAN access from HA to the GivEnergy dongle on TCP **8899** (auto-discovered, or
   set manually).
 - HA host clock within ±5 min of UTC — Birdy rejects readings whose timestamps
-  are too far off.
-- A Birdy account at <https://app.shocking.energy>.
+  are too far off. *Local mode is exempt from this requirement.*
+- **Cloud mode only**: a Birdy account at <https://app.shocking.energy>.
 
 ## Install
 
@@ -29,9 +45,9 @@ automations.
 2. Restart HA.
 3. Settings — Devices & services — **Add Integration** — **Birdy**.
 
-## First run
+## First run — cloud mode (default)
 
-1. Add the integration and click **Submit** (no fields).
+1. Add the integration and click **Submit** (leave *Local mode* unchecked).
 2. It scans the LAN for the dongle; if none is found, it asks for the inverter IP.
 3. Open <https://app.shocking.energy> **from a device on the same network as HA**
    and click **Adopt** on the banner. This links the integration to your account.
@@ -42,6 +58,17 @@ open the dashboard in and your HA server are on the same internet connection. If
 they're not — e.g. you're on mobile data, a VPN, or a CGNAT broadband setup — the
 automatic link stops after 2 minutes. For now, open the dashboard from a device on
 the same network as HA. A manual code option is planned.
+
+## First run — local mode
+
+1. Add the integration → tick **Local mode (no Shocking Energy account)** →
+   click **Submit**.
+2. It scans the LAN for the dongle; if none is found, it asks for the inverter IP.
+3. Entities populate within ~10 s. No browser step, no banner — Birdy is
+   already linked to your inverter.
+
+Role diagnostic reads `local`; Account ID reads `local install`. The two
+forecast sensors stay `unavailable` because no cloud is computing them.
 
 ## Entities
 
