@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Birdy",
-        "description": "{next_step}"
+        "description": "After clicking Submit, open shocking.energy on the same network as this HA instance. A banner will appear offering to adopt this Home Assistant as your account's master device."
       },
       "manual_host": {
         "title": "Inverter LAN address",

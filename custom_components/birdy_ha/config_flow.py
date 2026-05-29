@@ -67,17 +67,14 @@ class BirdyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="single_instance_allowed")
 
         if user_input is None:
+            # Description text now lives in translations/en.json — no
+            # placeholder needed. Previously this passed `next_step`
+            # via description_placeholders, but the error path below
+            # re-shows the same step_id without that key and triggered
+            # a MISSING_VALUE render error in HA's intl formatter.
             return self.async_show_form(
                 step_id="user",
                 data_schema=vol.Schema({}),
-                description_placeholders={
-                    "next_step": (
-                        "After clicking Submit, open shocking.energy on "
-                        "the same LAN as this HA instance. A banner will "
-                        "appear offering to adopt this Home Assistant as "
-                        "your tenant master."
-                    ),
-                },
             )
 
         # Generate ID, bootstrap, sign in.

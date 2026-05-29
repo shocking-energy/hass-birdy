@@ -67,7 +67,7 @@ SUPABASE_ANON_KEY = (
     "fthKB7F8OnLR3vkjfqaJOEl4bDsVzT1xDCnO-XI62YA"
 )
 
-VERCEL_BASE_URL = "https://energy-monitor-six.vercel.app"
+VERCEL_BASE_URL = "https://app.shocking.energy"
 HA_BOOTSTRAP_PATH = "/api/ha-bootstrap"
 PI_DISCOVERY_REGISTER_PATH = "/api/pi-discovery-register"
 
