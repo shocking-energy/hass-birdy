@@ -37,6 +37,31 @@ def _num(v) -> Optional[float]:
         return None
 
 
+# Sanity ceiling for every "today" kWh counter. Any installation we
+# ship to has total daily throughput well under this. A read above
+# this isn't a real reading — it's a transient Modbus glitch (BMS
+# 65535 / 10 = 6553.5 is the canonical shape we've seen). See the
+# long-form note next to the today-counter extraction in
+# snapshot_to_readings().
+_TODAY_KWH_CEILING = 200.0
+
+
+def _clamp_today(v: Optional[float]) -> Optional[float]:
+    """Return v if it's a plausible "today" kWh value, else None.
+
+    Caller treats None as "skip the push" — HA's last good reading
+    stays surfaced and the `total_increasing` accumulator avoids a
+    permanent +5910 kWh spike like the one we caught on David's prod
+    Pi 2026-05-30 (recorded_at 00:09:20 UTC). A negative value is
+    likewise impossible for a "today" counter and gets dropped here.
+    """
+    if v is None:
+        return None
+    if v < 0 or v > _TODAY_KWH_CEILING:
+        return None
+    return v
+
+
 def snapshot_to_readings(
     snapshot: Dict[str, Any],
     *,
@@ -74,12 +99,30 @@ def snapshot_to_readings(
     # Today-counters (reset at local midnight; see CLAUDE.md sign quirks
     # for the 5-10 min post-midnight lag — readers handle via
     # trimToAfterDailyReset, not the publisher).
-    solar_today = _num(solar.get("todayKwh"))
-    grid_import_today = _num(grid.get("importTodayKwh"))
-    grid_export_today = _num(grid.get("exportTodayKwh"))
-    house_today = _num(meter.get("consumptionTodayKwh"))
-    batt_charge_today = _num(meter.get("batteryChargeTodayKwh"))
-    batt_discharge_today = _num(meter.get("batteryDischargeTodayKwh"))
+    #
+    # The Modbus-YY transport will occasionally hand us a garbage read
+    # — a register grabbed at the wrong moment, a CRC slip, or the
+    # BMS's 65535 "not available" sentinel scaled by /10. Caught on
+    # David's prod Pi: a single transient `batt_discharge_today_kwh =
+    # 5910.5` slipped through pi-daemon → live_snapshot → HA, where
+    # HA's recorder treated the +5910 / -5910 transition as a counter
+    # reset and permanently baked the 5910 kWh spike into the
+    # statistics sum. A clean 5,800 kWh bar then showed up on the HA
+    # Energy chart at the next render — same shape, two charge-cycle
+    # boundaries, both around 5.8 MWh. _clamp_today() guards against
+    # this by replacing any "today" value above a physical ceiling
+    # (200 kWh is a couple of orders of magnitude above the most
+    # extravagant real-world daily counter on any residential
+    # installation we ship to) with None. Skipping the push is
+    # preferable to publishing the bad value — the sensor briefly
+    # shows the last good reading instead of an obvious glitch, and
+    # HA's `total_increasing` accumulator stays clean.
+    solar_today          = _clamp_today(_num(solar.get("todayKwh")))
+    grid_import_today    = _clamp_today(_num(grid.get("importTodayKwh")))
+    grid_export_today    = _clamp_today(_num(grid.get("exportTodayKwh")))
+    house_today          = _clamp_today(_num(meter.get("consumptionTodayKwh")))
+    batt_charge_today    = _clamp_today(_num(meter.get("batteryChargeTodayKwh")))
+    batt_discharge_today = _clamp_today(_num(meter.get("batteryDischargeTodayKwh")))
 
     rows: List[Dict[str, Any]] = []
 
