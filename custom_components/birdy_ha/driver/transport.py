@@ -137,6 +137,16 @@ class ModbusTransport:
     single-shot Modbus-YY relay (S13 mitigation).
     """
 
+    # Stalled-connection watchdog: trigger a forced reconnect when this
+    # many consecutive refreshes return only TimeoutError (no real
+    # responses), AND `_last_real_response_at` is more than
+    # WATCHDOG_STALE_THRESHOLD_S seconds in the past. The library's
+    # async client routinely returns CancelledError for shape_hash
+    # collisions, so we need both signals — counting any failure would
+    # false-trigger; counting only timeouts catches the genuine stall.
+    WATCHDOG_TIMEOUT_STREAK = 4   # ≈ 60 s at TELEMETRY_POLL_INTERVAL_S=15
+    WATCHDOG_STALE_THRESHOLD_S = 60.0
+
     def __init__(self, host: str, port: int = MODBUS_PORT) -> None:
         if Client is None:
             raise RuntimeError(
@@ -148,6 +158,9 @@ class ModbusTransport:
         self._client: Optional["Client"] = None
         self._connected = False
         self._lock = asyncio.Lock()
+        # Stalled-connection watchdog state (see refresh()).
+        self._consecutive_all_timeouts = 0
+        self._last_real_response_at: Optional[float] = None
 
     @property
     def host(self) -> str:
@@ -197,14 +210,69 @@ class ModbusTransport:
                 # plant.update() for every response that arrives,
                 # so the plant is correctly populated regardless.
                 reqs = _refresh_plant_requests(client.plant, full)
-                await client.execute(
+                results = await client.execute(
                     reqs, timeout=10.0, retries=0, return_exceptions=True,
                 )
                 await asyncio.sleep(MODBUS_INTER_CALL_GAP_S)
-                return client.plant
             except BaseException:
                 await self._close_quietly()
                 raise
+
+            # ── Stalled-connection watchdog ──────────────────────────
+            # `return_exceptions=True` above means execute() never
+            # raises even when every single request times out — the
+            # caller would otherwise see the same stale `client.plant`
+            # indefinitely. This is the 2026-05-31 incident shape:
+            # 6 h of frozen snapshots on David's HA because the TCP
+            # socket had ~5 MB of unread bytes in its receive buffer.
+            # The library's reader task had stalled, every await timed
+            # out behind millions of bytes of older responses, and the
+            # only recovery was a full container restart.
+            #
+            # Heuristic: count cycles where every result is a
+            # TimeoutError (genuine 10 s wall-clock waits — distinct
+            # from CancelledError which routine shape_hash collisions
+            # return). After WATCHDOG_TIMEOUT_STREAK consecutive
+            # all-timeout cycles AND >= WATCHDOG_STALE_THRESHOLD_S
+            # since the last real response, close the client so the
+            # next refresh forces a reconnect.
+            results = results or []
+            n_total = len(results)
+            n_timeouts = sum(
+                1 for r in results if isinstance(r, asyncio.TimeoutError)
+            )
+            n_real = sum(
+                1 for r in results if not isinstance(r, BaseException)
+            )
+            now = asyncio.get_event_loop().time()
+            if n_real > 0:
+                self._last_real_response_at = now
+                self._consecutive_all_timeouts = 0
+            elif n_total > 0 and n_timeouts == n_total:
+                self._consecutive_all_timeouts += 1
+                stale_secs = (
+                    now - self._last_real_response_at
+                    if self._last_real_response_at is not None
+                    else float("inf")
+                )
+                if (self._consecutive_all_timeouts >= self.WATCHDOG_TIMEOUT_STREAK
+                        and stale_secs >= self.WATCHDOG_STALE_THRESHOLD_S):
+                    _LOGGER.warning(
+                        "modbus client stalled: %d consecutive all-timeout "
+                        "refreshes, %.0f s since last real response; "
+                        "closing client for forced reconnect (%s:%d)",
+                        self._consecutive_all_timeouts,
+                        stale_secs,
+                        self._host,
+                        self._port,
+                    )
+                    await self._close_quietly()
+                    self._consecutive_all_timeouts = 0
+                    self._last_real_response_at = None
+                    raise asyncio.TimeoutError(
+                        "modbus client stalled; closed for forced reconnect"
+                    )
+            return client.plant
 
     async def _close_quietly(self) -> None:
         """Tear down the client without raising on a connection that
