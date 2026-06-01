@@ -218,29 +218,43 @@ class ModbusTransport:
                 await self._close_quietly()
                 raise
 
-            # ── Stalled-connection watchdog ──────────────────────────
-            # `return_exceptions=True` above means execute() never
-            # raises even when every single request times out — the
-            # caller would otherwise see the same stale `client.plant`
-            # indefinitely. This is the 2026-05-31 incident shape:
-            # 6 h of frozen snapshots on David's HA because the TCP
-            # socket had ~5 MB of unread bytes in its receive buffer.
-            # The library's reader task had stalled, every await timed
-            # out behind millions of bytes of older responses, and the
-            # only recovery was a full container restart.
+            # ── Fail fast on a refresh that fetched nothing ──────────
             #
-            # Heuristic: count cycles where every result is a
-            # TimeoutError (genuine 10 s wall-clock waits — distinct
-            # from CancelledError which routine shape_hash collisions
-            # return). After WATCHDOG_TIMEOUT_STREAK consecutive
-            # all-timeout cycles AND >= WATCHDOG_STALE_THRESHOLD_S
-            # since the last real response, close the client so the
-            # next refresh forces a reconnect.
+            # `return_exceptions=True` above means execute() never
+            # raises even when every single request times out (or
+            # cancels). Returning `client.plant` unconditionally
+            # therefore PUBLISHES STALE VALUES — the last successful
+            # plant snapshot — as if they were fresh. The 2026-05-31
+            # incident on David's HA was exactly this: 6 h of frozen
+            # numbers because the TCP receive buffer had stalled with
+            # ~5 MB of unread responses, every `await` timed out
+            # behind the backlog, and refresh() kept returning the
+            # cached plant. Downstream couldn't tell — solar showed
+            # 0 W while the inverter was producing 2 kW, and the
+            # close-phase rollup folded the frozen totals into
+            # daily_history.house_consumption_kwh (48 kWh on a 7.9 kWh
+            # day) and batt_discharge_kwh (5910 kWh on a 4 kWh day).
+            #
+            # The only reliable signal that a cycle delivered fresh
+            # data is that at least one request returned a real
+            # response (not a TimeoutError / CancelledError / other
+            # exception). If n_real is zero, NO register was freshly
+            # read this cycle — the in-memory plant has no new data
+            # to publish.
+            #
+            # We raise unconditionally in that case. The coordinator
+            # already handles TimeoutError from refresh() by skipping
+            # the publish for that cycle (the previously published
+            # snapshot remains in `live_snapshot` and ages naturally —
+            # at least it isn't being overwritten with stale values
+            # claiming to be fresh).
+            #
+            # We additionally count consecutive all-fail cycles so a
+            # sustained stall (which is what the 2026-05-31 incident
+            # was — the buffer needed flushing) triggers a forced
+            # reconnect rather than spinning on the same broken
+            # client forever.
             results = results or []
-            n_total = len(results)
-            n_timeouts = sum(
-                1 for r in results if isinstance(r, asyncio.TimeoutError)
-            )
             n_real = sum(
                 1 for r in results if not isinstance(r, BaseException)
             )
@@ -248,31 +262,38 @@ class ModbusTransport:
             if n_real > 0:
                 self._last_real_response_at = now
                 self._consecutive_all_timeouts = 0
-            elif n_total > 0 and n_timeouts == n_total:
-                self._consecutive_all_timeouts += 1
-                stale_secs = (
-                    now - self._last_real_response_at
-                    if self._last_real_response_at is not None
-                    else float("inf")
+                return client.plant
+
+            # No fresh register read this cycle.
+            self._consecutive_all_timeouts += 1
+            stale_secs = (
+                now - self._last_real_response_at
+                if self._last_real_response_at is not None
+                else float("inf")
+            )
+            if (self._consecutive_all_timeouts >= self.WATCHDOG_TIMEOUT_STREAK
+                    and stale_secs >= self.WATCHDOG_STALE_THRESHOLD_S):
+                _LOGGER.warning(
+                    "modbus client stalled: %d consecutive empty refreshes, "
+                    "%.0f s since last real response; closing client for "
+                    "forced reconnect (%s:%d)",
+                    self._consecutive_all_timeouts,
+                    stale_secs,
+                    self._host,
+                    self._port,
                 )
-                if (self._consecutive_all_timeouts >= self.WATCHDOG_TIMEOUT_STREAK
-                        and stale_secs >= self.WATCHDOG_STALE_THRESHOLD_S):
-                    _LOGGER.warning(
-                        "modbus client stalled: %d consecutive all-timeout "
-                        "refreshes, %.0f s since last real response; "
-                        "closing client for forced reconnect (%s:%d)",
-                        self._consecutive_all_timeouts,
-                        stale_secs,
-                        self._host,
-                        self._port,
-                    )
-                    await self._close_quietly()
-                    self._consecutive_all_timeouts = 0
-                    self._last_real_response_at = None
-                    raise asyncio.TimeoutError(
-                        "modbus client stalled; closed for forced reconnect"
-                    )
-            return client.plant
+                await self._close_quietly()
+                self._consecutive_all_timeouts = 0
+                self._last_real_response_at = None
+                raise asyncio.TimeoutError(
+                    "modbus refresh fetched no fresh data; "
+                    "closed for forced reconnect"
+                )
+            raise asyncio.TimeoutError(
+                f"modbus refresh fetched no fresh data "
+                f"(n_results={len(results)}, n_real=0, "
+                f"streak={self._consecutive_all_timeouts})"
+            )
 
     async def _close_quietly(self) -> None:
         """Tear down the client without raising on a connection that
