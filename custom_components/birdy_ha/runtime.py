@@ -593,21 +593,27 @@ class HaMaster:
         # Stamp source so dashboard knows the writer kind. Cloud schema
         # supports 'lan_push'; HA writes via the same RPC, same value.
         device_id = await self._resolve_inverter_device_id()
-        if not device_id and self._local_only:
-            # Local mode has no cloud tenant/device row, so
-            # _resolve_inverter_device_id() returns None. Synthesise a
-            # placeholder id so telemetry readings (and therefore the HA
-            # entities) populate offline. The id only matters for cloud
-            # publishing, which local mode never does.
-            device_id = "local"
         recorded_at_iso = now.isoformat()
-        _uid = getattr(self._cloud, "user_id", None)
+        # Build CanonicalReadings unconditionally so local-mode entities
+        # have values to render. _resolve_inverter_device_id() returns
+        # None whenever tenant_id is None — which is always-true in
+        # local mode — so gating reading_dicts on a truthy device_id
+        # leaves every read sensor permanently Unavailable. The cloud
+        # telemetry publish that actually needs device_id is gated
+        # separately by `if not self._local_only` below, so the local
+        # path is safe with a placeholder. self._cloud.user_id is None
+        # in local mode (we never sign in), hence the guard.
+        _src = (
+            f"ha:{self._cloud.user_id}"
+            if (self._cloud and getattr(self._cloud, "user_id", None))
+            else "ha:local"
+        )
         reading_dicts = snapshot_to_readings(
             shape_payload,
-            device_id=device_id or "",
+            device_id=device_id or "local",
             recorded_at=recorded_at_iso,
-            source=(f"ha:{_uid}" if _uid else "ha:local"),
-        ) if device_id else []
+            source=_src,
+        )
         readings = [
             CanonicalReading(
                 device_id=r["device_id"],
