@@ -593,12 +593,20 @@ class HaMaster:
         # Stamp source so dashboard knows the writer kind. Cloud schema
         # supports 'lan_push'; HA writes via the same RPC, same value.
         device_id = await self._resolve_inverter_device_id()
+        if not device_id and self._local_only:
+            # Local mode has no cloud tenant/device row, so
+            # _resolve_inverter_device_id() returns None. Synthesise a
+            # placeholder id so telemetry readings (and therefore the HA
+            # entities) populate offline. The id only matters for cloud
+            # publishing, which local mode never does.
+            device_id = "local"
         recorded_at_iso = now.isoformat()
+        _uid = getattr(self._cloud, "user_id", None)
         reading_dicts = snapshot_to_readings(
             shape_payload,
             device_id=device_id or "",
             recorded_at=recorded_at_iso,
-            source=f"ha:{self._cloud.user_id}",
+            source=(f"ha:{_uid}" if _uid else "ha:local"),
         ) if device_id else []
         readings = [
             CanonicalReading(

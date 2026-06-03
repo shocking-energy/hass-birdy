@@ -1,0 +1,158 @@
+# Birdy Home — recommended Lovelace dashboard for the Birdy integration.
+#
+# Requirements:
+#   - The Birdy integration set up (entities sensor./number./switch./time.birdy_*).
+#   - Custom card "power-flow-card-plus" installed via HACS
+#     (HACS → Frontend → "Power Flow Card Plus"). Without it, the
+#     "Live Power Flow" card shows a "custom element doesn't exist" error.
+#   - The energy-distribution card needs HA's Energy dashboard configured
+#     (Settings → Dashboards → Energy) using the birdy_* energy sensors.
+#
+# How to use:
+#   Settings → Dashboards → Add dashboard → (open it) → top-right ⋮ →
+#   "Edit dashboard" → ⋮ → "Raw configuration editor" → paste the contents
+#   below (title + views). Or add it as a YAML-mode dashboard in
+#   configuration.yaml:
+#     lovelace:
+#       dashboards:
+#         birdy-home:
+#           mode: yaml
+#           title: Birdy Home
+#           icon: mdi:solar-power-variant
+#           filename: dashboards/birdy-home.yaml
+
+title: Birdy Home
+views:
+  - type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Energy Generation and Usage
+            heading_style: title
+          - type: energy-distribution
+            grid_options:
+              columns: full
+      - type: grid
+        cards:
+          - type: heading
+            heading_style: title
+            heading: Live Power Flow
+          - type: custom:power-flow-card-plus
+            title: Solar Power Flow
+            entities:
+              grid:
+                entity: sensor.birdy_grid_power
+              solar:
+                entity: sensor.birdy_solar_power
+                color_value: false
+                color_icon: false
+                display_zero: true
+                display_zero_state: true
+              battery:
+                entity: sensor.birdy_battery_power
+                invert_state: true
+                state_of_charge: sensor.birdy_battery_soc
+              home:
+                entity: sensor.birdy_house_power
+              individual: []
+      - type: grid
+        cards:
+          - type: heading
+            heading: Battery & General Settings
+            heading_style: title
+          - type: entities
+            title: Inverter Settings
+            show_header_toggle: false
+            entities:
+              - entity: number.birdy_battery_reserve
+                name: Battery reserve (%)
+              - entity: number.birdy_battery_cutoff
+                name: Battery cutoff (%)
+              - entity: number.birdy_max_output_power
+                name: Max output power
+              - entity: switch.birdy_eco_mode
+                name: Eco mode
+      - type: grid
+        cards:
+          - type: heading
+            heading: DC Discharge Schedule
+            heading_style: title
+          - type: entities
+            title: Discharge to Grid
+            show_header_toggle: false
+            entities:
+              - entity: switch.birdy_dc_discharge_enabled
+                name: DC discharge enabled
+              - type: section
+                label: Slot 1
+              - entity: time.birdy_dc_discharge_1_start
+                name: Slot 1 start
+              - entity: time.birdy_dc_discharge_1_end
+                name: Slot 1 end
+              - type: section
+                label: Slot 2
+              - entity: time.birdy_dc_discharge_2_start
+                name: Slot 2 start
+              - entity: time.birdy_dc_discharge_2_end
+                name: Slot 2 end
+              - type: section
+                label: Settings
+              - entity: number.birdy_ac_discharge_rate
+                name: Discharge rate
+      - type: grid
+        cards:
+          - type: heading
+            heading: AC Charging Schedule
+            heading_style: title
+          - type: entities
+            title: Charge from Grid
+            show_header_toggle: false
+            entities:
+              - entity: switch.birdy_ac_charge_enabled
+                name: AC charge enabled
+              - type: section
+                label: When
+              - entity: time.birdy_ac_charge_start
+                name: Start time
+              - entity: time.birdy_ac_charge_end
+                name: End time
+              - type: section
+                label: Settings
+              - entity: switch.birdy_ac_charge_target_enabled
+                name: Charge to target enabled
+              - entity: number.birdy_ac_charge_limit
+                name: Charge limit (%)
+              - entity: number.birdy_ac_charge_rate
+                name: Charge rate
+      - type: grid
+        cards:
+          - type: heading
+            heading: GivEnergy Inverter
+            heading_style: title
+          - type: tile
+            entity: sensor.birdy_battery_charge_energy_today
+          - type: tile
+            entity: sensor.birdy_battery_discharge_energy_today
+          - type: tile
+            entity: sensor.birdy_battery_power
+          - type: tile
+            entity: sensor.birdy_battery_soc
+          - type: tile
+            entity: sensor.birdy_grid_export_energy_today
+          - type: tile
+            entity: sensor.birdy_grid_import_energy_today
+          - type: tile
+            entity: sensor.birdy_grid_power
+          - type: tile
+            entity: sensor.birdy_house_energy_today
+          - type: tile
+            entity: sensor.birdy_house_power
+          - type: tile
+            entity: sensor.birdy_solar_energy_today
+          - type: tile
+            entity: sensor.birdy_solar_power
+          - type: tile
+            entity: sensor.birdy_solar_string_1
+          - type: tile
+            entity: sensor.birdy_solar_string_2

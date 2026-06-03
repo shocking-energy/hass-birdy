@@ -100,6 +100,19 @@ sensors + diagnostics, set this on the HA host and restart:
 BIRDY_HA_CONTROLS_ENABLED=false
 ```
 
+## Dashboard
+
+A ready-made Lovelace dashboard is included at
+[`dashboards/birdy-home.yaml`](dashboards/birdy-home.yaml) — live power flow,
+energy distribution, battery/charge/discharge controls, and tiles for every
+sensor.
+
+It needs the **Power Flow Card Plus** custom card (HACS → Frontend → search
+"Power Flow Card Plus") for the live flow diagram, and HA's Energy dashboard
+configured for the energy-distribution card. To use it: Settings → Dashboards →
+add a dashboard → open it → ⋮ → Edit → ⋮ → Raw configuration editor → paste the
+file's contents.
+
 ## Master and monitor
 
 Birdy lets only **one device per account send data at a time** — the *master*. Any
