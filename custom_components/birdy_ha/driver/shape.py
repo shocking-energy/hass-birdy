@@ -32,6 +32,44 @@ def _num(v, default=0):
         return default
 
 
+# Raw-register garbage backstop. A garbled or partial Modbus read can
+# return uninitialised register windows that decode to astronomically
+# large powers (raw uint16/uint32 bit patterns). This ceiling sits FAR
+# above any real inverter — including future large commercial units — so
+# it only ever rejects garbage, never a legitimately big installation.
+# It is deliberately NOT an inverter-rating limit: the size-independent
+# integrity check is the SOC gate below.
+_RAW_GARBAGE_POWER_W = 1_000_000.0
+
+
+def corrupt_snapshot_reason(snapshot):
+    """Return a reason string if `snapshot` looks like a corrupt Modbus
+    read, else None.
+
+    The integrity signal is battery SOC: a percentage with a hard
+    physical range [0, 100] regardless of inverter size, so a value
+    outside that range means the register block decoded to garbage.
+    Empirically (David's GIV-HY-5.0, 2026-06-05) a single garbled poll
+    corrupts battery SOC, battery power and grid power together — they
+    share one Modbus read block — while solar/house (a different block)
+    stay valid. Gating the whole frame on SOC therefore drops the
+    correlated garbage without bounding power by inverter rating.
+    """
+    if not isinstance(snapshot, dict):
+        return "snapshot is not a dict"
+    bat = snapshot.get("battery") or {}
+    soc = bat.get("soc") if isinstance(bat, dict) else None
+    if isinstance(soc, (int, float)) and not (0 <= soc <= 100):
+        return f"battery SOC {soc} outside physical [0,100] — corrupt read"
+    for comp, key in (("battery", "power"), ("grid", "power"),
+                      ("solar", "power"), ("house", "load")):
+        block = snapshot.get(comp) or {}
+        v = block.get(key) if isinstance(block, dict) else None
+        if isinstance(v, (int, float)) and abs(v) >= _RAW_GARBAGE_POWER_W:
+            return f"{comp}.{key} {v} W exceeds raw-register backstop — corrupt read"
+    return None
+
+
 def _model_name(code: Any) -> str:
     c = int(_num(code, 0))
     # GivEnergy legacy (YY-wrapped) model codes (Hi-Flying dongle path).

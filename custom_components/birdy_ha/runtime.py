@@ -47,7 +47,7 @@ from .domain import (
     SystemShape,
 )
 from .driver.mappings import snapshot_to_readings
-from .driver.shape import build_snapshot_row
+from .driver.shape import build_snapshot_row, corrupt_snapshot_reason
 from .driver.transport import ModbusTransport, async_scan_for_dongle
 from .settings import SettingsAdapter
 
@@ -590,6 +590,20 @@ class HaMaster:
         # render (shape.py reads them out of opts["forecast"]).
         opts = {"forecast": dict(self._forecast)}
         shape_payload = build_snapshot_row(plant, opts)
+        # Drop corrupt Modbus frames before they reach the local SSE
+        # cache (_latest_shape), live_snapshot, or device_telemetry. A
+        # garbled/partial read decodes to physically-impossible values
+        # (SOC 28949%, grid 27.2 kW on a 5 kW inverter — David,
+        # 2026-06-05); skipping the cycle keeps the previous good
+        # snapshot and the next ~15 s poll recovers. Size-independent
+        # gate (SOC range + 1 MW backstop) — see corrupt_snapshot_reason.
+        corrupt = corrupt_snapshot_reason(shape_payload)
+        if corrupt:
+            _LOGGER.warning(
+                "dropping corrupt Modbus frame (%s); keeping last good snapshot",
+                corrupt,
+            )
+            return
         # Stamp source so dashboard knows the writer kind. Cloud schema
         # supports 'lan_push'; HA writes via the same RPC, same value.
         device_id = await self._resolve_inverter_device_id()
