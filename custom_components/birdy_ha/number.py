@@ -15,6 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    CHARGE_RATE_W_PER_RAW,
     CONTROL_ENTITY_KEYS,
     CONTROL_ENTITY_NAMES,
     CONTROL_KEY_NUMBER,
@@ -92,6 +93,17 @@ class BirdyNumber(CoordinatorEntity, NumberEntity):
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    @property
+    def extra_state_attributes(self) -> Optional[dict[str, Any]]:
+        # For the amp-based rate controls, surface the calculated watts
+        # (amps x ~52 W/A nominal) alongside the native current value.
+        if self._attr_native_unit_of_measurement != "A":
+            return None
+        v = self.native_value
+        if v is None:
+            return None
+        return {"calculated_power_w": round(v * CHARGE_RATE_W_PER_RAW)}
 
     @property
     def available(self) -> bool:

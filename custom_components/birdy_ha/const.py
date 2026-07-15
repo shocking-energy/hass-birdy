@@ -174,20 +174,23 @@ CONTROL_ENTITY_KEYS: dict[str, dict] = {
         "unit": "%",
         "icon": "mdi:battery-alert",
     },
+    # Exposed in amps (0-50) = the native battery current-limit register 1:1
+    # (also the library's valid range; ~52 W/A nominal). The number entity
+    # surfaces the calculated watts as a `calculated_power_w` attribute.
     "chargeRate": {
         "type": CONTROL_KEY_NUMBER,
         "min": 0,
-        "max": CHARGE_RATE_MAX_W,  # 5200 W on GIV-HY5.0
-        "step": CHARGE_RATE_W_PER_RAW,  # 52 W per raw register tick
-        "unit": "W",
+        "max": 50,
+        "step": 1,
+        "unit": "A",
         "icon": "mdi:battery-arrow-up",
     },
     "dischargeRate": {
         "type": CONTROL_KEY_NUMBER,
         "min": 0,
-        "max": CHARGE_RATE_MAX_W,
-        "step": CHARGE_RATE_W_PER_RAW,
-        "unit": "W",
+        "max": 50,
+        "step": 1,
+        "unit": "A",
         "icon": "mdi:battery-arrow-down",
     },
     "acChargeLimit": {

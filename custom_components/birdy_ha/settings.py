@@ -91,7 +91,21 @@ class SettingsAdapter:
             if transport is None:
                 return SettingsSnapshot(values={}, asof=datetime.now(timezone.utc))
 
-            plant = await transport.refresh()
+            try:
+                plant = await transport.refresh()
+            except (ValueError, KeyError) as exc:
+                # A single corrupt Modbus frame can decode an out-of-range
+                # enum (e.g. "40634 is not a valid BatteryCalibrationStage")
+                # and blow up the entire plant refresh. The poll path already
+                # tolerates this; do the same here so one bad frame doesn't
+                # mark every control entity unavailable. Keep last-good.
+                _LOGGER.warning(
+                    "read_settings: corrupt frame (%s); keeping last-good", exc)
+                if self._cache:
+                    return SettingsSnapshot(
+                        values=dict(self._cache),
+                        asof=self._cache_asof or datetime.now(timezone.utc))
+                return SettingsSnapshot(values={}, asof=datetime.now(timezone.utc))
             inv = plant.inverter
             values: dict[str, Any] = {}
 
@@ -123,16 +137,11 @@ class SettingsAdapter:
             # value in live_snapshot.config.chargeRate so monitor +
             # master modes now agree, and the HA number entity shows
             # "Charge rate 2600 W" instead of the misleading "50 %".
-            raw_charge = _safe_attr(inv, "battery_charge_limit", int)
-            values["chargeRate"] = (
-                raw_charge * CHARGE_RATE_W_PER_RAW
-                if raw_charge is not None else None
-            )
-            raw_discharge = _safe_attr(inv, "battery_discharge_limit", int)
-            values["dischargeRate"] = (
-                raw_discharge * CHARGE_RATE_W_PER_RAW
-                if raw_discharge is not None else None
-            )
+            # chargeRate/dischargeRate are exposed in AMPS = the native 0-50
+            # register value 1:1 (battery current limit; ~52 W/A nominal).
+            # The number entity shows the calculated watts as an attribute.
+            values["chargeRate"] = _safe_attr(inv, "battery_charge_limit", int)
+            values["dischargeRate"] = _safe_attr(inv, "battery_discharge_limit", int)
             values["acChargeLimit"] = _safe_attr(inv, "charge_target_soc", int)
             # maxOutputPowerPct lives at HR(50) — exposed by the
             # library as `active_power_rate` (uint16, 0-100). Some
@@ -264,8 +273,9 @@ class SettingsAdapter:
         # "reverted (expected=2630 observed=2652)" + restore the
         # previous value — even though the write was correct.
         if key in ("chargeRate", "dischargeRate"):
-            raw = max(0, min(100, round(float(value) / CHARGE_RATE_W_PER_RAW)))
-            value = raw * CHARGE_RATE_W_PER_RAW
+            # Value is amps = the native 0-50 register; clamp to a whole amp
+            # so the cache and the confirm-read agree.
+            value = max(0, min(50, int(round(float(value)))))
 
         # Update cache optimistically.
         previous = self._cache.get(key)
@@ -362,14 +372,11 @@ class SettingsAdapter:
         elif key == "batteryCutoff":
             requests = cmd.set_shallow_charge(int(value))
         elif key == "chargeRate":
-            # Inverse of the read-side scaling — UI value is in Watts,
-            # the register is in 52 W ticks. Round-to-nearest so a user
-            # typing 2630 W writes raw 51 (= 2652 W) rather than
-            # silently truncating to 50.
-            raw = max(0, min(100, round(float(value) / CHARGE_RATE_W_PER_RAW)))
+            # UI value is amps (0-50) = the native register directly.
+            raw = max(0, min(50, int(round(float(value)))))
             requests = cmd.set_battery_charge_limit(raw)
         elif key == "dischargeRate":
-            raw = max(0, min(100, round(float(value) / CHARGE_RATE_W_PER_RAW)))
+            raw = max(0, min(50, int(round(float(value)))))
             requests = cmd.set_battery_discharge_limit(raw)
         elif key == "acChargeLimit":
             # In 1.x the same value is set via set_charge_target.
