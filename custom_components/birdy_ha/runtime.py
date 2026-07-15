@@ -50,6 +50,12 @@ from .driver.mappings import snapshot_to_readings
 from .driver.shape import build_snapshot_row, corrupt_snapshot_reason
 from .driver.transport import ModbusTransport, async_scan_for_dongle
 from .settings import SettingsAdapter
+from .low_rate import (
+    LowRateImportDeriver,
+    now_in_local_window,
+    LOW_RATE_EV_W,
+    _LONDON,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -152,6 +158,8 @@ class HaMaster:
         self._cloud = CloudClient()
         self._transport: Optional[ModbusTransport] = None
         self._settings = SettingsAdapter(self)
+        # Live low-rate grid-import split (parity with the pi-daemon deriver).
+        self._low_rate = LowRateImportDeriver()
         self._latest_readings: list[CanonicalReading] = []
         self._latest_shape: Optional[SystemShape] = None
         self._latest_settings: Optional[SettingsSnapshot] = None
@@ -628,6 +636,26 @@ class HaMaster:
             recorded_at=recorded_at_iso,
             source=_src,
         )
+        # Low-rate grid-import split (parity with the pi-daemon deriver):
+        # gate on the inverter's AC-charge window (= the Octopus cheap window
+        # on a GivEnergy tenant), plus a CT 'ev' channel if one exists.
+        # Accounting only — appends grid_import.low_rate_today_kwh, never
+        # touches control.
+        try:
+            cfg = shape_payload.get("config") or {}
+            now_local = now.astimezone(_LONDON)
+            is_low = now_in_local_window(
+                cfg.get("acChargeStart"), cfg.get("acChargeEnd"), now_local)
+            if not is_low:
+                ev = next(
+                    (r.get("value") for r in reading_dicts
+                     if r.get("component") == "ev" and r.get("metric") == "power_w"),
+                    None)
+                if ev is not None and float(ev) >= LOW_RATE_EV_W:
+                    is_low = True
+            reading_dicts = self._low_rate.augment(reading_dicts, is_low)
+        except Exception:
+            _LOGGER.debug("low_rate augment failed", exc_info=True)
         readings = [
             CanonicalReading(
                 device_id=r["device_id"],
