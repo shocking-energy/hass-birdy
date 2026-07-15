@@ -325,7 +325,19 @@ class SettingsAdapter:
             else:
                 requests = cmd.disable_charge_target()
         elif key == "dcDischarge":
-            requests = cmd.enable_discharge() if value else cmd.disable_discharge()
+            # DC discharge is timed EXPORT on GivEnergy, so enabling it must
+            # also put the inverter in max-power mode (battery_power_mode
+            # HR27=0 = "maximum power, exporting to the grid"). Enabling
+            # only enable_discharge (HR59) left HR27 at match-demand (=1,
+            # "avoid exporting"), so the battery merely covered house load
+            # and never exported — the behaviour GE Cloud's Timed Export
+            # did set. Disabling restores match-demand so normal timed
+            # discharge doesn't export. Verified on real hardware (David's
+            # GIV-HY5.0, 2026-07-15): ~2.6 kW export vs 0 W before.
+            if value:
+                requests = cmd.enable_discharge() + cmd.set_discharge_mode_max_power()
+            else:
+                requests = cmd.disable_discharge() + cmd.set_discharge_mode_to_match_demand()
         elif key == "ecoMode":
             # Dynamic = eco on; Storage = eco off, using the user's
             # configured discharge slots.
