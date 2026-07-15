@@ -24,6 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    CHARGE_RATE_W_PER_RAW,
     DOMAIN,
     ENERGY_DASHBOARD_KEYS,
     MANUFACTURER,
@@ -106,6 +107,16 @@ async def async_setup_entry(
         ),
     ])
 
+    # Calculated-watts readouts for the amp-based rate controls, so the
+    # watts are visible on the dashboard (the number controls are in amps).
+    settings_coord = data["settings_coordinator"]
+    entities.extend([
+        BirdyRateWattsSensor(settings_coord, "chargeRate", "AC charge rate (W)",
+                             "mdi:battery-arrow-up", device_info, entry.entry_id),
+        BirdyRateWattsSensor(settings_coord, "dischargeRate", "AC discharge rate (W)",
+                             "mdi:battery-arrow-down", device_info, entry.entry_id),
+    ])
+
     async_add_entities(entities)
 
 
@@ -168,6 +179,38 @@ class BirdyReadingSensor(CoordinatorEntity, SensorEntity):
             return False
         data = self.coordinator.data or {}
         return self._key in data
+
+
+class BirdyRateWattsSensor(CoordinatorEntity, SensorEntity):
+    """Calculated watts for an amp-based rate control (amps x ~52 W/A),
+    driven by the settings coordinator so the watts show on the dashboard
+    next to the amps number control."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_native_unit_of_measurement = "W"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator, key, name, icon, device_info, entry_id):
+        super().__init__(coordinator)
+        self._key = key
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_unique_id = f"{entry_id}_{key}_watts"
+        self._attr_device_info = device_info
+
+    @property
+    def native_value(self) -> Optional[float]:
+        snap = self.coordinator.data
+        if snap is None:
+            return None
+        v = snap.values.get(self._key)
+        if v is None:
+            return None
+        try:
+            return round(float(v) * CHARGE_RATE_W_PER_RAW)
+        except (TypeError, ValueError):
+            return None
 
 
 # ─── Diagnostic sensors ──────────────────────────────────────────────
