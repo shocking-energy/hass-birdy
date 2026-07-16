@@ -1,12 +1,14 @@
 {
   "domain": "birdy_ha",
   "name": "Birdy",
-  "version": "0.11.9",
+  "version": "0.11.10",
   "config_flow": true,
   "iot_class": "local_polling",
   "documentation": "https://github.com/shocking-energy/hass-birdy",
   "issue_tracker": "https://github.com/shocking-energy/hass-birdy/issues",
-  "codeowners": ["@kevin-bird"],
+  "codeowners": [
+    "@kevin-bird"
+  ],
   "integration_type": "device",
   "homeassistant": "2023.11.0",
   "requirements": [

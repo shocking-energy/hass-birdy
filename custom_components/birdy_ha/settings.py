@@ -57,6 +57,10 @@ class SettingsAdapter:
         self._cache: dict[str, Any] = {}
         self._cache_asof: Optional[datetime] = None
         self._write_history: dict[str, deque] = defaultdict(deque)
+        # Monotonic per-key write counter so a confirm-read can tell if a
+        # newer write to the same key superseded it (rapid slider drags
+        # otherwise fire spurious reverts — see _confirm_write).
+        self._latest_write_seq: dict[str, int] = defaultdict(int)
         self._read_lock = asyncio.Lock()
 
     @property
@@ -91,16 +95,26 @@ class SettingsAdapter:
             if transport is None:
                 return SettingsSnapshot(values={}, asof=datetime.now(timezone.utc))
 
-            try:
-                plant = await transport.refresh()
-            except (ValueError, KeyError) as exc:
-                # A single corrupt Modbus frame can decode an out-of-range
-                # enum (e.g. "40634 is not a valid BatteryCalibrationStage")
-                # and blow up the entire plant refresh. The poll path already
-                # tolerates this; do the same here so one bad frame doesn't
-                # mark every control entity unavailable. Keep last-good.
+            # A single corrupt Modbus frame can decode an out-of-range
+            # enum/time (e.g. "40634 is not a valid BatteryCalibrationStage",
+            # time(hour=176)) and blow up the entire plant refresh. Retry
+            # with a fresh frame before giving up — a reliable confirm-read
+            # is what lets control writes actually stick. Only fall back to
+            # last-good if every attempt decodes dirty (so entities don't
+            # flicker Unavailable on a transient bad frame).
+            plant = None
+            for _attempt in range(3):
+                try:
+                    plant = await transport.refresh()
+                    break
+                except (ValueError, KeyError) as exc:
+                    _LOGGER.debug(
+                        "read_settings: corrupt frame (%s); retry %d/3",
+                        exc, _attempt + 1,
+                    )
+            if plant is None:
                 _LOGGER.warning(
-                    "read_settings: corrupt frame (%s); keeping last-good", exc)
+                    "read_settings: corrupt frame x3; keeping last-good")
                 if self._cache:
                     return SettingsSnapshot(
                         values=dict(self._cache),
@@ -277,6 +291,11 @@ class SettingsAdapter:
             # so the cache and the confirm-read agree.
             value = max(0, min(50, int(round(float(value)))))
 
+        # Tag this write so its confirm-read can detect a newer write to
+        # the same key landing in between (supersede guard).
+        self._latest_write_seq[key] += 1
+        write_seq = self._latest_write_seq[key]
+
         # Update cache optimistically.
         previous = self._cache.get(key)
         self._cache[key] = value
@@ -296,7 +315,7 @@ class SettingsAdapter:
             )
 
         # Schedule the confirmation read. Don't block the caller.
-        asyncio.create_task(self._confirm_write(key, value, previous))
+        asyncio.create_task(self._confirm_write(key, value, previous, write_seq))
         return WriteResult(
             key=key, requested_value=value, observed_value=value, accepted=True,
         )
@@ -414,23 +433,58 @@ class SettingsAdapter:
 
         await transport.one_shot_command(requests)
 
-    async def _confirm_write(self, key: str, expected: Any, previous: Any) -> None:
+    async def _confirm_write(
+        self, key: str, expected: Any, previous: Any, write_seq: int,
+    ) -> None:
         await asyncio.sleep(SETTINGS_WRITE_CONFIRM_DELAY_S)
-        try:
-            snapshot = await self.read_settings()
-        except Exception as exc:
-            _LOGGER.warning("confirm-read after %s failed: %s", key, exc)
+
+        # (2b) Superseded? A newer write to this key landed while we slept,
+        # so its own confirm owns the outcome — ours would read a value
+        # mid-transition and wrongly revert. This was the rapid-slider bug:
+        # dragging 38→39→40 produced a train of observed=43 false reverts.
+        if write_seq != self._latest_write_seq.get(key):
+            _LOGGER.debug(
+                "confirm %s superseded (seq %s→%s); skipping",
+                key, write_seq, self._latest_write_seq.get(key),
+            )
             return
-        observed = snapshot.values.get(key)
-        # read_settings() already fires listeners via its own write into
-        # _cache. But the cache may have been re-written by a parallel
-        # apply_setting between sleep and now — fire again on revert so
-        # entities reflect the rollback.
+
+        try:
+            observed = (await self.read_settings()).values.get(key)
+        except Exception as exc:
+            _LOGGER.warning(
+                "confirm-read after %s failed: %s — leaving requested value", key, exc)
+            return
+
         if observed == expected:
             _LOGGER.info("apply_setting %s confirmed (=%s)", key, expected)
             return
+
+        # (2a) Read came back unreadable — a corrupt frame degraded this
+        # field to None. Do NOT revert: the write may well have landed,
+        # and a blind rollback on an unreadable confirm is exactly what
+        # bounced good rate/slot writes back to their old values.
+        if observed is None:
+            _LOGGER.warning(
+                "apply_setting %s: confirm-read unavailable; leaving requested value", key)
+            return
+
+        # (2c) One mismatch isn't enough — the inverter can lag a write by
+        # several seconds. Re-read once more after another delay and only
+        # revert on a STABLE mismatch (bail if superseded meanwhile).
+        await asyncio.sleep(SETTINGS_WRITE_CONFIRM_DELAY_S)
+        if write_seq != self._latest_write_seq.get(key):
+            return
+        try:
+            observed = (await self.read_settings()).values.get(key)
+        except Exception:
+            return
+        if observed in (None, expected):
+            _LOGGER.info("apply_setting %s confirmed on re-read (=%s)", key, observed)
+            return
+
         _LOGGER.warning(
-            "apply_setting %s reverted (expected=%s observed=%s) — restoring cache",
+            "apply_setting %s reverted (expected=%s observed=%s, stable) — restoring cache",
             key, expected, observed,
         )
         self._cache[key] = previous
