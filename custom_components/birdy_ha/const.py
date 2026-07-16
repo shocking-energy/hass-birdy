@@ -25,7 +25,7 @@ LAN_SCAN_MAX_WORKERS = 64
 
 TELEMETRY_POLL_INTERVAL_S = 15
 SETTINGS_POLL_INTERVAL_S = 300  # 5 min; configurable via HA options
-SETTINGS_WRITE_CONFIRM_DELAY_S = 5
+SETTINGS_WRITE_CONFIRM_DELAY_S = 8
 SETTINGS_WRITE_RATE_LIMIT_PER_MIN = 6  # per setting
 
 # Background role-refresh cadence + setup-time bounded Modbus probe.

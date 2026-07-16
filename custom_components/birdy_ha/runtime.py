@@ -588,16 +588,36 @@ class HaMaster:
                 # Skip publish — not adopted yet.
                 return
 
-        plant = await self._transport.refresh()
-        now = datetime.now(timezone.utc)
-        self._last_modbus_ok_at = now
-
-        # Build SYSTEM shape + canonical readings from the same plant.
         # Thread the forecast values from the previous publish response
         # into `meta` so the kiosk's `<actual> / <expected>` slots can
         # render (shape.py reads them out of opts["forecast"]).
         opts = {"forecast": dict(self._forecast)}
-        shape_payload = build_snapshot_row(plant, opts)
+
+        # Corrupt Modbus frames intermittently decode a register into an
+        # out-of-range enum/time (e.g. BatteryCalibrationStage=40634,
+        # time(hour=176)) which RAISES on property access inside
+        # build_snapshot_row — killing the whole poll cycle AND starving
+        # the settings confirm-read, so control writes bounce back. Retry
+        # with a fresh frame before giving up; corruption is intermittent
+        # (~5-7% of frames), so 3 tries makes a clean read near-certain.
+        # Skip the cycle (keep last-good) only if all attempts decode dirty.
+        shape_payload = None
+        for _attempt in range(3):
+            try:
+                plant = await self._transport.refresh()
+                shape_payload = build_snapshot_row(plant, opts)
+                break
+            except (ValueError, KeyError) as exc:
+                _LOGGER.debug(
+                    "corrupt frame decode (%s); retrying refresh (%d/3)",
+                    exc, _attempt + 1,
+                )
+        if shape_payload is None:
+            _LOGGER.warning(
+                "corrupt Modbus frame x3; skipping cycle, keeping last-good snapshot")
+            return
+        now = datetime.now(timezone.utc)
+        self._last_modbus_ok_at = now
         # Drop corrupt Modbus frames before they reach the local SSE
         # cache (_latest_shape), live_snapshot, or device_telemetry. A
         # garbled/partial read decodes to physically-impossible values

@@ -139,7 +139,13 @@ def _scrub_nuls(obj):
 
 def build_snapshot_row(plant, opts: Dict[str, Any]) -> Dict[str, Any]:
     inv = plant.inverter
-    bats = list(plant.batteries) if plant.batteries else []
+    try:
+        bats = list(plant.batteries) if plant.batteries else []
+    except (ValueError, KeyError):
+        # A corrupt battery frame (e.g. BatteryCalibrationStage=40634)
+        # would otherwise abort the whole snapshot. Degrade to no-battery
+        # detail for this cycle rather than also losing solar/grid/house.
+        bats = []
     first_bat = bats[0] if bats else None
 
     battery_power = _num(getattr(inv, "p_battery", 0))
@@ -148,16 +154,25 @@ def build_snapshot_row(plant, opts: Dict[str, Any]) -> Dict[str, Any]:
 
     # In givenergy-modbus 1.x these are TimeSlot objects with .start/.end;
     # in 0.x they were (start, end) tuples. Normalise to (start, end).
-    def _slot_pair(value):
+    def _slot_pair(get):
+        # `get` is a thunk so the library property access — which decodes
+        # HHMM registers into time objects and RAISES ValueError on a
+        # corrupt register (e.g. time(hour=176)) — happens INSIDE the
+        # guard. getattr(inv, ..., None) alone does NOT catch this; its
+        # default only suppresses AttributeError, not the getter's raise.
+        try:
+            value = get()
+        except (ValueError, KeyError, TypeError):
+            return (None, None)
         if value is None:
             return (None, None)
         if isinstance(value, tuple):
             return value
         return (getattr(value, "start", None), getattr(value, "end", None))
 
-    charge_slot = _slot_pair(getattr(inv, "charge_slot_1", None))
-    discharge_slot_1 = _slot_pair(getattr(inv, "discharge_slot_1", None))
-    discharge_slot_2 = _slot_pair(getattr(inv, "discharge_slot_2", None))
+    charge_slot = _slot_pair(lambda: getattr(inv, "charge_slot_1", None))
+    discharge_slot_1 = _slot_pair(lambda: getattr(inv, "discharge_slot_1", None))
+    discharge_slot_2 = _slot_pair(lambda: getattr(inv, "discharge_slot_2", None))
 
     arm_fw = getattr(inv, "arm_firmware_version", "") or ""
     dsp_fw = getattr(inv, "dsp_firmware_version", "") or ""
