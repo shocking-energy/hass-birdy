@@ -267,7 +267,7 @@ class SettingsAdapter:
 
     # ─── Write ───────────────────────────────────────────────────────
 
-    async def apply_setting(self, key: str, value: Any) -> WriteResult:
+    async def apply_setting(self, key: str, value: Any, origin: str = "user") -> WriteResult:
         """Optimistic write with revert-on-mismatch.
 
         Caller is the HA entity's `async_turn_on` / `async_set_value` /
@@ -278,6 +278,14 @@ class SettingsAdapter:
                 key=key, requested_value=value, observed_value=None,
                 accepted=False, error="unknown setting key",
             )
+
+        # A human changing the battery mode in HA pauses the export
+        # scheduler for its grace period, so the clock doesn't immediately
+        # stomp the manual choice. `origin="scheduler"` writes don't.
+        if key == "batteryMode" and origin != "scheduler":
+            sched = getattr(self._master, "_export_scheduler", None)
+            if sched is not None:
+                sched.note_manual_mode_write(datetime.now(timezone.utc))
 
         # Master-only — monitors can't write.
         if not self._master.binding.can_control:

@@ -1,7 +1,21 @@
-# Battery mode model + time-based export scheduler (spec)
+# Battery mode model + time-based export scheduler
 
-Status: **mode model shipped (0.11.12); scheduler NOT built** — this doc
-specs the scheduler.
+Status: **mode model shipped (0.11.12); scheduler BUILT (0.11.13),
+inert-by-default, NOT yet hardware-tested.** Implementation:
+[export_scheduler.py](../custom_components/birdy_ha/export_scheduler.py) +
+the hook in `runtime.py#_poll_once`. Unit tests:
+[tests/test_export_scheduler.py](../tests/test_export_scheduler.py).
+
+## Enabling (per Pi)
+Off unless **`BIRDY_EXPORT_SCHEDULER=1`** is set on the master Pi AND a
+DC-discharge window (slot 1) is configured on the inverter. With both, the
+scheduler writes `batteryMode=timed_export` inside the window and `eco`
+outside it, on the poll cadence (a transition writes ~twice a day). A human
+changing the mode in HA pauses it for `MANUAL_OVERRIDE_GRACE` (2 h). Unset
+the env to disable. **The as-built uses the inverter's own DC-discharge slot
+as the window and fixed modes (timed_export in / eco out); the cloud
+`devices.meta.export_schedule` config below is the planned next iteration,
+deferred to avoid a Pi-user RLS read on `devices`.**
 
 ## 1. The register model (verified 2026-07-17, David's GIV-HY5.0)
 
