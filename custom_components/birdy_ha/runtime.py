@@ -56,6 +56,7 @@ from .low_rate import (
     LOW_RATE_EV_W,
     _LONDON,
 )
+from .export_scheduler import ExportScheduler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -160,6 +161,9 @@ class HaMaster:
         self._settings = SettingsAdapter(self)
         # Live low-rate grid-import split (parity with the pi-daemon deriver).
         self._low_rate = LowRateImportDeriver()
+        # Time-based battery-mode scheduler (timed_export in-window, eco out).
+        # Inert unless BIRDY_EXPORT_SCHEDULER=1 + a DC-discharge window is set.
+        self._export_scheduler = ExportScheduler()
         self._latest_readings: list[CanonicalReading] = []
         self._latest_shape: Optional[SystemShape] = None
         self._latest_settings: Optional[SettingsSnapshot] = None
@@ -676,6 +680,34 @@ class HaMaster:
             reading_dicts = self._low_rate.augment(reading_dicts, is_low)
         except Exception:
             _LOGGER.debug("low_rate augment failed", exc_info=True)
+
+        # Export scheduler (CONTROL): flip batteryMode to timed_export inside
+        # the inverter's DC-discharge window and back to eco outside it, so
+        # the tenant self-consumes the evening instead of holding + buying
+        # grid. Master + can_control + BIRDY_EXPORT_SCHEDULER=1 only; a
+        # transition writes ~twice a day, every other tick is a no-op.
+        if (
+            self.binding.can_control
+            and not self._local_only
+            and os.getenv("BIRDY_EXPORT_SCHEDULER") == "1"
+        ):
+            try:
+                cfg = shape_payload.get("config") or {}
+                want = self._export_scheduler.target(
+                    now.astimezone(_LONDON), now,
+                    cfg.get("batteryMode"),
+                    cfg.get("dcDischarge1Start"), cfg.get("dcDischarge1End"),
+                )
+                if want is not None:
+                    res = await self._settings.apply_setting(
+                        "batteryMode", want, origin="scheduler")
+                    self._export_scheduler.note_scheduler_write(want, now)
+                    _LOGGER.info(
+                        "export scheduler → batteryMode=%s (%s)",
+                        want, "ok" if res.accepted else f"rejected: {res.error}")
+            except Exception:
+                _LOGGER.debug("export scheduler tick failed", exc_info=True)
+
         readings = [
             CanonicalReading(
                 device_id=r["device_id"],
