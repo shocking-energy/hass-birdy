@@ -71,19 +71,43 @@ views:
                 name: Battery cutoff (%)
               - entity: number.birdy_max_output_power
                 name: Max output power
-              - entity: switch.birdy_eco_mode
-                name: Eco mode
+              - entity: select.birdy_battery_mode
+                name: Battery mode
+          - type: markdown
+            content: >
+              **Battery mode** — one setting, three mutually-exclusive options
+              (they share the same inverter register, so only one can be
+              active):
+
+
+              - **Eco** — self-consumption 24/7: the battery charges from spare
+              solar and discharges to power the house, minimising grid import.
+              *This is the normal setting.*
+
+              - **Timed export** — inside the Discharge-to-Grid window below,
+              the battery exports at full power; outside it the battery holds.
+
+              - **Timed discharge** — inside the window the battery covers house
+              load only (no export); outside it it holds.
+
+
+              When the **export scheduler** is enabled it flips this
+              automatically — *Timed export* during your peak window and *Eco*
+              the rest of the day — so you sell at peak **and** self-consume in
+              the evening. You don't normally need to change it by hand.
       - type: grid
         cards:
           - type: heading
             heading: DC Discharge Schedule
             heading_style: title
           - type: entities
-            title: Discharge to Grid
+            title: Discharge to Grid (export window)
             show_header_toggle: false
             entities:
-              - entity: switch.birdy_dc_discharge_enabled
-                name: DC discharge enabled
+              - type: section
+                label: >-
+                  Turn this window on/off via Battery mode → Timed export above.
+                  These times define when it runs.
               - type: section
                 label: Slot 1
               - entity: time.birdy_dc_discharge_1_start
