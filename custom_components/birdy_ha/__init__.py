@@ -64,7 +64,9 @@ def _platforms() -> list[Platform]:
     """
     platforms = [Platform.SENSOR, Platform.BINARY_SENSOR]
     if _controls_enabled():
-        platforms.extend([Platform.SWITCH, Platform.NUMBER, Platform.TIME])
+        platforms.extend([
+            Platform.SWITCH, Platform.NUMBER, Platform.TIME, Platform.SELECT,
+        ])
     return platforms
 
 

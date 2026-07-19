@@ -1,8 +1,9 @@
-"""HA switch entities — the boolean inverter controls (acCharge,
-acChargeUpperEnabled).
+"""HA select entity — battery operating mode.
 
-The battery operating mode (previously the coupled ecoMode + dcDischarge
-switches) is now a single `select` entity — see select.py / batteryMode.
+One mutually-exclusive control (Eco / Timed discharge / Timed export)
+that replaces the old ecoMode + dcDischarge switches. Those both wrote
+the same enable_discharge register (r59) and so silently cancelled each
+other; a single select makes the three real modes explicit.
 
 Loaded only when FEATURE_CONTROL_ENTITIES is True (gate evaluated in
 __init__._platforms()).
@@ -13,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -22,7 +23,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     CONTROL_ENTITY_KEYS,
     CONTROL_ENTITY_NAMES,
-    CONTROL_KEY_BOOLEAN,
+    CONTROL_KEY_SELECT,
     DOMAIN,
     MANUFACTURER,
 )
@@ -43,10 +44,10 @@ async def async_setup_entry(
 
     entities = []
     for key, spec in CONTROL_ENTITY_KEYS.items():
-        if spec["type"] != CONTROL_KEY_BOOLEAN:
+        if spec["type"] != CONTROL_KEY_SELECT:
             continue
         entities.append(
-            BirdySwitch(coord, master, key, spec, device_info, entry.entry_id)
+            BirdySelect(coord, master, key, spec, device_info, entry.entry_id)
         )
     async_add_entities(entities)
 
@@ -60,7 +61,7 @@ def _device_info(master) -> dict[str, Any]:
     }
 
 
-class BirdySwitch(CoordinatorEntity, SwitchEntity):
+class BirdySelect(CoordinatorEntity, SelectEntity):
     _attr_has_entity_name = True
 
     def __init__(
@@ -77,38 +78,28 @@ class BirdySwitch(CoordinatorEntity, SwitchEntity):
         self._key = key
         self._attr_name = CONTROL_ENTITY_NAMES[key]
         self._attr_icon = spec.get("icon")
-        self._attr_unique_id = f"{entry_id}_switch_{key}"
+        self._attr_options = list(spec["options"])
+        self._attr_unique_id = f"{entry_id}_select_{key}"
         self._attr_device_info = device_info
 
     @property
-    def is_on(self) -> Optional[bool]:
+    def current_option(self) -> Optional[str]:
         snapshot = self.coordinator.data
         if snapshot is None:
             return None
-        return bool(snapshot.values.get(self._key))
+        v = snapshot.values.get(self._key)
+        return v if v in self._attr_options else None
 
     @property
     def available(self) -> bool:
-        # Available iff we have a current reading. Writes are gated
-        # separately in async_turn_on/off so monitors can still
-        # display the current setting even though they can't change
-        # it (apply_setting raises HomeAssistantError on monitor).
         if not super().available:
             return False
         snapshot = self.coordinator.data
         if snapshot is None or self._key not in snapshot.values:
             return False
-        return True
+        return snapshot.values.get(self._key) is not None
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        self._raise_if_readonly()
-        await self._master.settings.apply_setting(self._key, True)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        self._raise_if_readonly()
-        await self._master.settings.apply_setting(self._key, False)
-
-    def _raise_if_readonly(self) -> None:
+    async def async_select_option(self, option: str) -> None:
         if not self._master.binding.can_control:
             from homeassistant.exceptions import HomeAssistantError
             raise HomeAssistantError(
@@ -117,3 +108,4 @@ class BirdySwitch(CoordinatorEntity, SwitchEntity):
                 "Promote this HA to master from the admin panel to "
                 "enable controls."
             )
+        await self._master.settings.apply_setting(self._key, option)
