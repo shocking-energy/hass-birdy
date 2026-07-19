@@ -162,7 +162,7 @@ class HaMaster:
         # Live low-rate grid-import split (parity with the pi-daemon deriver).
         self._low_rate = LowRateImportDeriver()
         # Time-based battery-mode scheduler (timed_export in-window, eco out).
-        # Inert unless BIRDY_EXPORT_SCHEDULER=1 + a DC-discharge window is set.
+        # Inert unless enabled (BIRDY_EXPORT_SCHEDULER=1 or a .birdy_export_scheduler marker file) + a DC-discharge window is set.
         self._export_scheduler = ExportScheduler()
         self._latest_readings: list[CanonicalReading] = []
         self._latest_shape: Optional[SystemShape] = None
@@ -535,6 +535,18 @@ class HaMaster:
 
     # ─── Background loops ────────────────────────────────────────────
 
+    def _export_scheduler_enabled(self) -> bool:
+        """Export scheduler is OFF by default. Enable per-Pi via either the
+        `BIRDY_EXPORT_SCHEDULER=1` env var OR a marker file at
+        `<config>/.birdy_export_scheduler` (the file is easier on a
+        docker-run HA where adding an env means recreating the container)."""
+        if os.getenv("BIRDY_EXPORT_SCHEDULER") == "1":
+            return True
+        try:
+            return os.path.exists(self._hass.config.path(".birdy_export_scheduler"))
+        except Exception:
+            return False
+
     async def _poll_loop(self) -> None:
         """Main telemetry poll. Drives binding state from Adopted →
         Publishing on first successful publish; survives transient
@@ -684,12 +696,12 @@ class HaMaster:
         # Export scheduler (CONTROL): flip batteryMode to timed_export inside
         # the inverter's DC-discharge window and back to eco outside it, so
         # the tenant self-consumes the evening instead of holding + buying
-        # grid. Master + can_control + BIRDY_EXPORT_SCHEDULER=1 only; a
+        # grid. Master + can_control; enabled per-Pi via BIRDY_EXPORT_SCHEDULER=1 or a .birdy_export_scheduler marker file; a
         # transition writes ~twice a day, every other tick is a no-op.
         if (
             self.binding.can_control
             and not self._local_only
-            and os.getenv("BIRDY_EXPORT_SCHEDULER") == "1"
+            and self._export_scheduler_enabled()
         ):
             try:
                 cfg = shape_payload.get("config") or {}

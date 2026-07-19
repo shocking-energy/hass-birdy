@@ -7,7 +7,7 @@ the hook in `runtime.py#_poll_once`. Unit tests:
 [tests/test_export_scheduler.py](../tests/test_export_scheduler.py).
 
 ## Enabling (per Pi)
-Off unless **`BIRDY_EXPORT_SCHEDULER=1`** is set on the master Pi AND a
+Off unless enabled — **`BIRDY_EXPORT_SCHEDULER=1`** OR a **`<config>/.birdy_export_scheduler`** marker file (easier on a docker-run HA) — on the master Pi AND a
 DC-discharge window (slot 1) is configured on the inverter. With both, the
 scheduler writes `batteryMode=timed_export` inside the window and `eco`
 outside it, on the poll cadence (a transition writes ~twice a day). A human
