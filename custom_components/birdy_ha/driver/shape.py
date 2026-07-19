@@ -340,11 +340,14 @@ def build_snapshot_row(plant, opts: Dict[str, Any]) -> Dict[str, Any]:
             "dcDischarge2End": _slot_hhmm(discharge_slot_2[1]),
             "batteryReserve": _num(getattr(inv, "battery_soc_reserve", 0)),
             "batteryCutoff": 0,
-            # The Modbus registers expose these as a percentage 0-50 where
-            # 50 = max rate (~2.6 kW on HY-5.0); the cloud API and the UI
-            # expect watts, so scale by 52 W/% to match.
-            "chargeRate": _num(getattr(inv, "battery_charge_limit", 0)) * 52,
-            "dischargeRate": _num(getattr(inv, "battery_discharge_limit", 0)) * 52,
+            # The Modbus registers hold an integer 0-50 that maps to inverter
+            # power at ~100 W/unit (raw 50 = 5 kW = the HY-5.0's rating).
+            # Verified on David's HY-5.0 (2026-07-17): raw 10 → ~1 kW. A single
+            # GIV-BAT-9.5 saturates at its ~2.6 kW cell-current ceiling around
+            # raw 26 (that's a battery limit, not the register's). The old
+            # 52 W/unit wrongly assumed raw 50 = 2.6 kW, reading ~1.9x too low.
+            "chargeRate": _num(getattr(inv, "battery_charge_limit", 0)) * 100,
+            "dischargeRate": _num(getattr(inv, "battery_discharge_limit", 0)) * 100,
             # `active_power_rate` is HR(50) on this inverter — 0-100%
             # active-power output curtailment. Pass through None when
             # the register isn't readable so the monitor-mode settings

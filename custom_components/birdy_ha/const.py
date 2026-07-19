@@ -137,13 +137,19 @@ CONTROL_KEY_NUMBER = "number"
 CONTROL_KEY_TIME = "time"
 
 # GE inverter charge/discharge rate registers (`battery_charge_limit`,
-# `battery_discharge_limit`) hold an integer 0-100 representing units
-# of 52 W on the GIV-HY5.0 — raw 100 = 5200 W max. pi-daemon's shape.py
-# uses the same multiplier in production. For other models the
-# multiplier differs; we'll derive it from device_type_code once we
-# need to support a non-HY5.0 in the field.
-CHARGE_RATE_W_PER_RAW = 52
-CHARGE_RATE_MAX_W = 100 * CHARGE_RATE_W_PER_RAW  # 5200 W
+# `battery_discharge_limit`) are set as an integer 0-50 (the library's
+# valid range). On the GIV-HY5.0 (5.0 kW inverter) the register maps
+# linearly to inverter power at ~100 W per unit — raw 50 = 5000 W.
+# VERIFIED on David's GIV-HY5.0 (2026-07-17): raw 10 → 995 W discharge /
+# 968 W charge. The previous 52 W/unit was WRONG — it assumed a 0-100
+# range (5200/100); the real range is 0-50 → ~100 W/unit, so the shown
+# watts read ~1.9x too LOW and a "1 kW" setting actually pushed ~2 kW.
+# Above ~raw 26 a single GIV-BAT-9.5 saturates at its ~2.6 kW cell-current
+# ceiling (a battery limit, not the inverter's). Display-only: the write
+# path sends the raw register value unchanged. For non-HY5.0 models the
+# multiplier differs; derive from device_type_code when one appears.
+CHARGE_RATE_W_PER_RAW = 100
+CHARGE_RATE_MAX_W = 50 * CHARGE_RATE_W_PER_RAW  # 5000 W (inverter rating)
 
 CONTROL_ENTITY_KEYS: dict[str, dict] = {
     # ── Switches (boolean) ──
