@@ -27,6 +27,9 @@ from datetime import datetime, time, timezone
 from typing import Any, Optional, TYPE_CHECKING
 
 from .const import (
+    BATTERY_MODE_ECO,
+    BATTERY_MODE_TIMED_DISCHARGE,
+    BATTERY_MODE_TIMED_EXPORT,
     CHARGE_RATE_W_PER_RAW,
     CONTROL_KEY_BOOLEAN,
     CONTROL_KEY_NUMBER,
@@ -141,6 +144,22 @@ class SettingsAdapter:
             ed = _safe_attr(inv, "enable_discharge", bool)
             values["ecoMode"] = (not ed) if ed is not None else None
 
+            # batteryMode: the single mutually-exclusive operating mode
+            # (supersedes the coupled ecoMode/dcDischarge switches). r59
+            # (enable_discharge) gates timed discharge; r27
+            # (battery_power_mode) picks export (0) vs match-demand (1).
+            # ecoMode/dcDischarge stay populated above for cloud + monitor
+            # back-compat.
+            pm = _safe_attr(inv, "battery_power_mode", int)
+            if ed is None:
+                values["batteryMode"] = None
+            elif not ed:
+                values["batteryMode"] = BATTERY_MODE_ECO
+            elif pm == 0:
+                values["batteryMode"] = BATTERY_MODE_TIMED_EXPORT
+            else:
+                values["batteryMode"] = BATTERY_MODE_TIMED_DISCHARGE
+
             # Numbers.
             values["batteryReserve"] = _safe_attr(
                 inv, "battery_discharge_min_power_reserve", int,
@@ -217,6 +236,7 @@ class SettingsAdapter:
         # Booleans + numbers map across verbatim.
         for key in (
             "acCharge", "acChargeUpperEnabled", "dcDischarge", "ecoMode",
+            "batteryMode",
             "batteryReserve", "batteryCutoff", "chargeRate", "dischargeRate",
             "acChargeLimit", "maxOutputPowerPct",
         ):
@@ -353,39 +373,39 @@ class SettingsAdapter:
                 requests = cmd.set_charge_target(limit)
             else:
                 requests = cmd.disable_charge_target()
-        elif key == "dcDischarge":
-            # DC discharge is timed EXPORT on GivEnergy, so enabling it must
-            # also put the inverter in max-power mode (battery_power_mode
-            # HR27=0 = "maximum power, exporting to the grid"). Enabling
-            # only enable_discharge (HR59) left HR27 at match-demand (=1,
-            # "avoid exporting"), so the battery merely covered house load
-            # and never exported — the behaviour GE Cloud's Timed Export
-            # did set. Disabling restores match-demand so normal timed
-            # discharge doesn't export. Verified on real hardware (David's
-            # GIV-HY5.0, 2026-07-15): ~2.6 kW export vs 0 W before.
-            if value:
-                requests = cmd.enable_discharge() + cmd.set_discharge_mode_max_power()
-            else:
-                requests = cmd.disable_discharge() + cmd.set_discharge_mode_to_match_demand()
-        elif key == "ecoMode":
-            # Dynamic = eco on; Storage = eco off, using the user's
-            # configured discharge slots.
-            if value:
-                requests = cmd.set_mode_dynamic()
-            else:
-                d1s = self._cache.get("dcDischarge1Start") or time(16, 0)
-                d1e = self._cache.get("dcDischarge1End") or time(7, 0)
-                d2s = self._cache.get("dcDischarge2Start")
-                d2e = self._cache.get("dcDischarge2End")
-                slot1 = TimeSlot(start=d1s, end=d1e)
-                slot2 = (
-                    TimeSlot(start=d2s, end=d2e) if d2s and d2e else None
+        elif key == "batteryMode":
+            # One mutually-exclusive mode instead of the old ecoMode +
+            # dcDischarge switches (both wrote r59 and cancelled each other).
+            #   eco             → self-consume 24/7 (r59=0, r27=1)
+            #   timed_discharge → discharge to load in the slots only (r59=1, r27=1)
+            #   timed_export    → export at max in the slots only  (r59=1, r27=0)
+            # The slot TIMES come from the dcDischarge1/2 time entities.
+            d1s = self._cache.get("dcDischarge1Start") or time(16, 0)
+            d1e = self._cache.get("dcDischarge1End") or time(19, 0)
+            d2s = self._cache.get("dcDischarge2Start")
+            d2e = self._cache.get("dcDischarge2End")
+            slot1 = TimeSlot(start=d1s, end=d1e)
+            slot2 = TimeSlot(start=d2s, end=d2e) if d2s and d2e else None
+            if value == BATTERY_MODE_ECO:
+                # set_mode_dynamic() equivalent, but WITHOUT resetting the SOC
+                # reserve to 4% (set_mode_dynamic does — we preserve the user's
+                # reserve so switching to eco can't deepen the discharge floor).
+                requests = (
+                    cmd.set_discharge_mode_to_match_demand()
+                    + cmd.set_enable_discharge(False)
                 )
+            elif value == BATTERY_MODE_TIMED_EXPORT:
                 requests = cmd.set_mode_storage(
-                    discharge_slot_1=slot1,
-                    discharge_slot_2=slot2,
+                    discharge_slot_1=slot1, discharge_slot_2=slot2,
+                    discharge_for_export=True,
+                )
+            elif value == BATTERY_MODE_TIMED_DISCHARGE:
+                requests = cmd.set_mode_storage(
+                    discharge_slot_1=slot1, discharge_slot_2=slot2,
                     discharge_for_export=False,
                 )
+            else:
+                raise ValueError(f"unknown batteryMode {value!r}")
         elif key == "batteryReserve":
             requests = cmd.set_battery_power_reserve(int(value))
         elif key == "batteryCutoff":

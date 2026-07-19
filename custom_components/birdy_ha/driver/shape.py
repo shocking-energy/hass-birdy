@@ -328,6 +328,18 @@ def build_snapshot_row(plant, opts: Dict[str, Any]) -> Dict[str, Any]:
             # (eco off). Same logic the settings adapter uses to drive
             # the eco_mode switch so live_snapshot and the entity agree.
             "ecoMode": _eco_mode_from(getattr(inv, "enable_discharge", None)),
+            # Single mutually-exclusive mode (matches settings.py's derivation):
+            # r59 enable_discharge gates timed discharge; r27 battery_power_mode
+            # picks export (0) vs match-demand (1). Rides live_snapshot so the
+            # monitor + cloud (and Birdy's LAN settings fallback) see the real
+            # mode, not the coupled ecoMode/dcDischarge pair.
+            "batteryMode": (
+                None if getattr(inv, "enable_discharge", None) is None
+                else "eco" if not getattr(inv, "enable_discharge")
+                else "timed_export"
+                if _num(getattr(inv, "battery_power_mode", 1)) == 0
+                else "timed_discharge"
+            ),
             "acCharge": bool(getattr(inv, "enable_charge", False)),
             "acChargeStart": _slot_hhmm(charge_slot[0]),
             "acChargeEnd": _slot_hhmm(charge_slot[1]),

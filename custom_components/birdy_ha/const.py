@@ -135,6 +135,21 @@ ENERGY_DASHBOARD_KEYS = frozenset({
 CONTROL_KEY_BOOLEAN = "boolean"
 CONTROL_KEY_NUMBER = "number"
 CONTROL_KEY_TIME = "time"
+CONTROL_KEY_SELECT = "select"
+
+# Battery operating mode — the three mutually-exclusive r59/r27 register
+# combinations, surfaced as ONE select. Replaces the old `ecoMode` +
+# `dcDischarge` switches, which BOTH wrote r59 (enable_discharge) and so
+# silently cancelled each other (turning Eco on quietly disabled a timed
+# export schedule, and vice-versa — they were never independent).
+BATTERY_MODE_ECO = "eco"                          # r59=0        → 24/7 self-consumption
+BATTERY_MODE_TIMED_DISCHARGE = "timed_discharge"  # r59=1, r27=1 → cover load in slots only
+BATTERY_MODE_TIMED_EXPORT = "timed_export"        # r59=1, r27=0 → export at max in slots only
+BATTERY_MODES = [
+    BATTERY_MODE_ECO,
+    BATTERY_MODE_TIMED_DISCHARGE,
+    BATTERY_MODE_TIMED_EXPORT,
+]
 
 # GE inverter charge/discharge rate registers (`battery_charge_limit`,
 # `battery_discharge_limit`) are set as an integer 0-50 (the library's
@@ -158,11 +173,16 @@ CONTROL_ENTITY_KEYS: dict[str, dict] = {
         "type": CONTROL_KEY_BOOLEAN,
         "icon": "mdi:battery-charging-100",
     },
-    "dcDischarge": {
-        "type": CONTROL_KEY_BOOLEAN,
-        "icon": "mdi:battery-arrow-down",
+    # ── Select ──
+    # Single mutually-exclusive battery mode. Supersedes the old ecoMode +
+    # dcDischarge switches (see BATTERY_MODES above) so they can no longer
+    # cancel each other. The discharge-slot TIMES are still set via the
+    # dcDischarge1/2 time entities; this only picks the mode.
+    "batteryMode": {
+        "type": CONTROL_KEY_SELECT,
+        "options": BATTERY_MODES,
+        "icon": "mdi:home-battery",
     },
-    "ecoMode": {"type": CONTROL_KEY_BOOLEAN, "icon": "mdi:leaf"},
     # ── Numbers ──
     "batteryReserve": {
         "type": CONTROL_KEY_NUMBER,
@@ -246,6 +266,7 @@ CONTROL_ENTITY_NAMES = {
     "chargeRate": "AC charge rate",
     "dischargeRate": "AC discharge rate",
     "ecoMode": "Eco mode",
+    "batteryMode": "Battery mode",
     "maxOutputPowerPct": "Max output power",
 }
 
