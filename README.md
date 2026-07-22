@@ -26,6 +26,21 @@ Since 0.11.0 Birdy supports two install modes — pick at first-run:
   AI assistant, or the 2 forecast values. Swap to cloud mode later by
   re-adding the integration.
 
+### Creating a Shocking Energy account (cloud mode)
+
+Free to sign up — do this before (or during) install:
+
+1. Go to <https://app.shocking.energy/#/signup>.
+2. Enter your **email**, a **password** (min 8 characters), and your **name**.
+3. Check your inbox and click the **confirmation link** in the email we send.
+4. You're in. Now install the integration (below) and, when prompted, open the
+   dashboard from a device on your home network and click **Adopt** to link HA
+   to your account.
+
+You can add your GivEnergy / Octopus API keys later from the dashboard — they're
+optional for a Home Assistant install (HA reads your inverter locally). Already
+have an account? Just sign in at <https://app.shocking.energy> instead.
+
 ## Requirements
 
 - Home Assistant **2023.11.0** or newer (uses the `time` entity).
