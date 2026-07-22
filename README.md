@@ -38,12 +38,16 @@ Since 0.11.0 Birdy supports two install modes — pick at first-run:
 ## Install
 
 ### HACS (recommended)
-
-1. HACS — search **Birdy** — Download. *(Until accepted to the default list:
-   HACS — ⋮ — Custom repositories — add
-   `https://github.com/shocking-energy/hass-birdy` as category **Integration**.)*
-2. Restart HA.
-3. Settings — Devices & services — **Add Integration** — **Birdy**.
+1. In HA, go to **HACS** (left sidebar).
+2. Top-right **⋮ menu → Custom repositories**.
+3. Fill in:
+   - **Repository:** `https://github.com/shocking-energy/hass-birdy`
+   - **Type / Category:** **Integration**
+4. Click **Add**, then close the dialog.
+5. Back in HACS, search for **Birdy** → open it → click **Download**.
+6. Confirm the version shown is **0.11.14** and download.
+7. **Restart Home Assistant** (Settings → System → top-right ⋮ → Restart).
+8. Add the integration: **Settings → Devices & Services → + Add Integration → search "Birdy"** → follow the setup prompts (bind to your tenant / inverter).
 
 ## First run — cloud mode (default)
 
