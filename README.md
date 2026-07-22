@@ -96,7 +96,8 @@ A ready-made Lovelace dashboard is included at
 energy distribution, the Battery mode + charge/discharge controls, and tiles for
 every sensor.
 
-![Birdy live power flow card](docs/images/powerflow-card.png)
+<img src="docs/images/powerflow-card.png" alt="Birdy live power flow card" width="380">
+
 
 **Installing the integration does not install this dashboard or its cards** — the
 YAML is a template you paste in yourself, and the live flow diagram needs a
@@ -116,11 +117,13 @@ separate custom card. Set it up once:
 The dashboard also gives you editable control cards — for example the
 grid-charging schedule:
 
-![Birdy "Charge from Grid" card](docs/images/charge-from-grid.png)
+<img src="docs/images/charge-from-grid.png" alt="Birdy Charge from Grid card" width="320">
+
 
 ## Entities
 
-![Birdy GivEnergy inverter sensors in Home Assistant](docs/images/givenergy.png)
+<img src="docs/images/givenergy.png" alt="Birdy GivEnergy inverter sensors in Home Assistant" width="360">
+
 
 - **Read sensors (13)** — live grid / battery / solar / house power, plus
   today's energy totals. The energy sensors are tagged
