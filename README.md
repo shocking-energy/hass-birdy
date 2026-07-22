@@ -89,6 +89,30 @@ the same network as HA. A manual code option is planned.
 Role diagnostic reads `local`; Account ID reads `local install`. The two
 forecast sensors stay `unavailable` because no cloud is computing them.
 
+## Set up the dashboard
+
+A ready-made Lovelace dashboard is included at
+[`dashboards/birdy-home.yaml`](dashboards/birdy-home.yaml) — live power flow,
+energy distribution, the Battery mode + charge/discharge controls, and tiles for
+every sensor.
+
+![Birdy live power flow card](docs/images/powerflow-card.png)
+
+**Installing the integration does not install this dashboard or its cards** — the
+YAML is a template you paste in yourself, and the live flow diagram needs a
+separate custom card. Set it up once:
+
+1. **Install the flow card (prerequisite).** In HACS → **Frontend** → search
+   **"Power Flow Card Plus"** → Download → **restart HA**. Without it the flow
+   diagram shows a red *"custom element doesn't exist: power-flow-card-plus"*
+   error.
+2. *(Optional)* Configure HA's built-in **Energy dashboard** so the
+   energy-distribution card has data.
+3. **Create the dashboard.** Settings → **Dashboards** → **+ Add dashboard** →
+   open it → top-right **✏️ Edit** → **⋮ → Raw configuration editor**.
+4. **Paste** the full contents of
+   [`dashboards/birdy-home.yaml`](dashboards/birdy-home.yaml) → **Save**.
+
 ## Entities
 
 - **Read sensors (13)** — live grid / battery / solar / house power, plus
@@ -138,30 +162,6 @@ It's **off by default**. Enable it on the **master** HA in either way, then rest
 
 Set your export window with the **DC discharge** slot times, then leave **Battery
 mode** to the scheduler. Changing the mode by hand pauses it for 2 hours.
-
-## Dashboard
-
-A ready-made Lovelace dashboard is included at
-[`dashboards/birdy-home.yaml`](dashboards/birdy-home.yaml) — live power flow,
-energy distribution, the Battery mode + charge/discharge controls, and tiles for
-every sensor.
-
-![Birdy live power flow card](docs/images/powerflow-card.png)
-
-**Installing the integration does not install this dashboard or its cards** — the
-YAML is a template you paste in yourself, and the live flow diagram needs a
-separate custom card. Set it up once:
-
-1. **Install the flow card (prerequisite).** In HACS → **Frontend** → search
-   **"Power Flow Card Plus"** → Download → **restart HA**. Without it the flow
-   diagram shows a red *"custom element doesn't exist: power-flow-card-plus"*
-   error.
-2. *(Optional)* Configure HA's built-in **Energy dashboard** so the
-   energy-distribution card has data.
-3. **Create the dashboard.** Settings → **Dashboards** → **+ Add dashboard** →
-   open it → top-right **✏️ Edit** → **⋮ → Raw configuration editor**.
-4. **Paste** the full contents of
-   [`dashboards/birdy-home.yaml`](dashboards/birdy-home.yaml) → **Save**.
 
 ## Master and monitor
 
