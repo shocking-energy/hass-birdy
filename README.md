@@ -5,8 +5,8 @@ Home Assistant integration for **Birdy**, the AI energy dashboard for GivEnergy
 
 This is Birdy's local-first route into Home Assistant. HA talks to your GivEnergy
 inverter directly over your local network — **GivEnergy Cloud is not required** —
-sends your system's live data up to your Birdy account, and adds **43 entities** to
-HA (13 read-only sensors, 16 inverter controls, 6 battery diagnostics,
+sends your system's live data up to your Birdy account, and adds **42 entities** to
+HA (13 read-only sensors, 15 inverter controls, 6 battery diagnostics,
 2 forecast values, 6 status/diagnostic entities) for use in dashboards and
 automations.
 
@@ -20,8 +20,8 @@ Since 0.11.0 Birdy supports two install modes — pick at first-run:
   for automations, and multi-device data sharing (Pi + HA + phone seeing the
   same numbers).
 - **Local mode** — tick the *Local mode* box on the intro screen. No account,
-  no telemetry leaves your LAN. You get the same 41 Home Assistant entities
-  (13 read sensors, 16 inverter controls, 6 battery diagnostics, 6 status
+  no telemetry leaves your LAN. You get the same 40 Home Assistant entities
+  (13 read sensors, 15 inverter controls, 6 battery diagnostics, 6 status
   diagnostics) and full local control. You don't get the cloud dashboard, the
   AI assistant, or the 2 forecast values. Swap to cloud mode later by
   re-adding the integration.
@@ -80,10 +80,13 @@ forecast sensors stay `unavailable` because no cloud is computing them.
   today's energy totals. The energy sensors are tagged
   `device_class: energy` + `state_class: total_increasing`, so they drop straight
   into HA's Energy dashboard.
-- **Inverter controls (16)** — eco mode, AC charge / DC discharge schedules,
-  reserve / cutoff, charge / discharge rates, AC charge limit, max output %. All
-  changes go straight to the inverter over your local network (no cloud
-  round-trip).
+- **Inverter controls (15)** — **battery mode** (Eco / Timed export / Timed
+  discharge), AC charge / DC discharge schedules, reserve / cutoff,
+  charge / discharge rates, AC charge limit, max output %. All changes go
+  straight to the inverter over your local network (no cloud round-trip). On
+  GivEnergy Gen1/2, Eco and timed discharge/export are one mutually-exclusive
+  setting, so they're surfaced as a single **Battery mode** select rather than
+  separate switches.
 - **Battery diagnostics (6)** — state of health, total capacity (kWh), calibrated
   and design capacity (Ah), pack voltage, pack temperature. Read off the BMS
   every poll cycle.
@@ -104,18 +107,44 @@ sensors + diagnostics, set this on the HA host and restart:
 BIRDY_HA_CONTROLS_ENABLED=false
 ```
 
+### Automatic peak export (optional)
+
+On GivEnergy Gen1/2, *Timed export* holds the battery outside its window — so a
+static "always export" setting leaves the house buying grid power all evening. The
+**export scheduler** fixes that by flipping **Battery mode** automatically: *Timed
+export* during your peak window, *Eco* (self-consume) the rest of the day. You sell
+at peak **and** run the house off the battery in the evening.
+
+It's **off by default**. Enable it on the **master** HA in either way, then restart:
+
+- Create an empty marker file `<config>/.birdy_export_scheduler` (easiest on a
+  `docker run` HA — `docker exec homeassistant touch /config/.birdy_export_scheduler`), **or**
+- Set `BIRDY_EXPORT_SCHEDULER=1` in the HA container environment.
+
+Set your export window with the **DC discharge** slot times, then leave **Battery
+mode** to the scheduler. Changing the mode by hand pauses it for 2 hours.
+
 ## Dashboard
 
 A ready-made Lovelace dashboard is included at
 [`dashboards/birdy-home.yaml`](dashboards/birdy-home.yaml) — live power flow,
-energy distribution, battery/charge/discharge controls, and tiles for every
-sensor.
+energy distribution, the Battery mode + charge/discharge controls, and tiles for
+every sensor.
 
-It needs the **Power Flow Card Plus** custom card (HACS → Frontend → search
-"Power Flow Card Plus") for the live flow diagram, and HA's Energy dashboard
-configured for the energy-distribution card. To use it: Settings → Dashboards →
-add a dashboard → open it → ⋮ → Edit → ⋮ → Raw configuration editor → paste the
-file's contents.
+**Installing the integration does not install this dashboard or its cards** — the
+YAML is a template you paste in yourself, and the live flow diagram needs a
+separate custom card. Set it up once:
+
+1. **Install the flow card (prerequisite).** In HACS → **Frontend** → search
+   **"Power Flow Card Plus"** → Download → **restart HA**. Without it the flow
+   diagram shows a red *"custom element doesn't exist: power-flow-card-plus"*
+   error.
+2. *(Optional)* Configure HA's built-in **Energy dashboard** so the
+   energy-distribution card has data.
+3. **Create the dashboard.** Settings → **Dashboards** → **+ Add dashboard** →
+   open it → top-right **✏️ Edit** → **⋮ → Raw configuration editor**.
+4. **Paste** the full contents of
+   [`dashboards/birdy-home.yaml`](dashboards/birdy-home.yaml) → **Save**.
 
 ## Master and monitor
 
