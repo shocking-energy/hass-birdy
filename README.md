@@ -131,6 +131,8 @@ A ready-made Lovelace dashboard is included at
 energy distribution, the Battery mode + charge/discharge controls, and tiles for
 every sensor.
 
+![Birdy live power flow card](docs/images/powerflow-card.png)
+
 **Installing the integration does not install this dashboard or its cards** — the
 YAML is a template you paste in yourself, and the live flow diagram needs a
 separate custom card. Set it up once:

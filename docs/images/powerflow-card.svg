@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 760" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <!-- card -->
+  <rect x="20" y="60" width="820" height="680" rx="16" fill="#ffffff" stroke="#e6e6e6" stroke-width="1.5"/>
+  <text x="56" y="118" font-size="30" font-weight="700" fill="#1f2933">Solar Power Flow</text>
+
+  <!-- ===== connectors ===== -->
+  <g fill="none" stroke-width="4" stroke-linecap="round">
+    <!-- Solar -> Home (orange) -->
+    <path d="M482,346 C590,430 560,458 600,462" stroke="#f2a63a"/>
+    <!-- Solar -> Grid (purple) -->
+    <path d="M380,346 C300,408 268,416 244,424" stroke="#8b5cf6"/>
+    <!-- Grid <-> Home horizontal (blue) -->
+    <path d="M262,462 L598,462" stroke="#3f6fb5"/>
+    <path d="M262,478 L598,478" stroke="#3f6fb5"/>
+    <!-- Solar -> Battery (pink) -->
+    <path d="M430,372 L430,568" stroke="#e0508a"/>
+    <!-- Battery -> Home (teal) -->
+    <path d="M476,596 C560,560 560,500 600,480" stroke="#2bb0a0"/>
+    <!-- Grid -> Battery (purple) -->
+    <path d="M236,524 C300,582 360,592 384,596" stroke="#8b5cf6"/>
+  </g>
+  <!-- flow dots -->
+  <g>
+    <circle cx="286" cy="462" r="6" fill="#8b5cf6"/>
+    <circle cx="286" cy="478" r="6" fill="#8b5cf6"/>
+    <circle cx="592" cy="460" r="6" fill="#f2a63a"/>
+  </g>
+
+  <!-- ===== SOLAR node ===== -->
+  <text x="430" y="196" font-size="19" fill="#7b8794" text-anchor="middle">Solar</text>
+  <circle cx="430" cy="300" r="70" fill="#ffffff" stroke="#f2a63a" stroke-width="5"/>
+  <g fill="#2b2b2b" transform="translate(430,278)">
+    <rect x="-16" y="-8" width="24" height="16" rx="2" transform="skewX(-12)"/>
+    <path d="M12,-10 l7,-6 -3,7 6,0 -8,9 3,-7 -6,0 z" fill="#2b2b2b"/>
+  </g>
+  <text x="430" y="326" font-size="22" font-weight="600" fill="#1f2933" text-anchor="middle">1.1 kW</text>
+
+  <!-- ===== GRID node ===== -->
+  <circle cx="190" cy="470" r="70" fill="#ffffff" stroke="#8b5cf6" stroke-width="5"/>
+  <g stroke="#2b2b2b" stroke-width="2.4" fill="none" transform="translate(190,446)">
+    <path d="M-13,10 L0,-12 L13,10"/>
+    <path d="M-9,3 L9,3 M-11,10 L11,10 M-4,-6 L4,-6"/>
+    <path d="M-7,10 L-3,20 M7,10 L3,20"/>
+  </g>
+  <text x="190" y="486" font-size="20" font-weight="600" fill="#8b5cf6" text-anchor="middle">&#8592;690 W</text>
+  <text x="190" y="510" font-size="20" font-weight="600" fill="#3f6fb5" text-anchor="middle">&#8594;0 W</text>
+  <text x="190" y="576" font-size="19" fill="#7b8794" text-anchor="middle">Grid</text>
+
+  <!-- ===== HOME node ===== -->
+  <circle cx="670" cy="470" r="70" fill="#ffffff" stroke="#f2a63a" stroke-width="5"/>
+  <g fill="#2b2b2b" transform="translate(670,462)">
+    <path d="M-15,2 L0,-13 L15,2 L11,2 L11,15 L-11,15 L-11,2 Z"/>
+  </g>
+  <text x="670" y="500" font-size="22" font-weight="600" fill="#1f2933" text-anchor="middle">408 W</text>
+  <text x="670" y="576" font-size="19" fill="#7b8794" text-anchor="middle">Home</text>
+
+  <!-- ===== BATTERY node ===== -->
+  <circle cx="430" cy="640" r="70" fill="#ffffff" stroke="#2bb0a0" stroke-width="5"/>
+  <text x="430" y="616" font-size="19" font-weight="600" fill="#1f2933" text-anchor="middle">100 %</text>
+  <g fill="#2b2b2b" transform="translate(430,642)">
+    <rect x="-13" y="-9" width="26" height="16" rx="2.5" fill="none" stroke="#2b2b2b" stroke-width="2.4"/>
+    <rect x="13" y="-4" width="3.5" height="6" rx="1" />
+    <rect x="-10" y="-6" width="20" height="10" rx="1.5"/>
+  </g>
+  <text x="430" y="676" font-size="20" font-weight="600" fill="#e0508a" text-anchor="middle">&#8595;0 W</text>
+  <text x="430" y="700" font-size="20" font-weight="600" fill="#2bb0a0" text-anchor="middle">&#8593;0 W</text>
+  <text x="430" y="734" font-size="19" fill="#7b8794" text-anchor="middle">Battery</text>
+</svg>
