@@ -113,7 +113,14 @@ separate custom card. Set it up once:
 4. **Paste** the full contents of
    [`dashboards/birdy-home.yaml`](dashboards/birdy-home.yaml) → **Save**.
 
+The dashboard also gives you editable control cards — for example the
+grid-charging schedule:
+
+![Birdy "Charge from Grid" card](docs/images/charge-from-grid.png)
+
 ## Entities
+
+![Birdy GivEnergy inverter sensors in Home Assistant](docs/images/givenergy.png)
 
 - **Read sensors (13)** — live grid / battery / solar / house power, plus
   today's energy totals. The energy sensors are tagged
