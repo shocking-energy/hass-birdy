@@ -585,8 +585,13 @@ class HaMaster:
             _LOGGER.warning("poll cycle failed: %s", exc, exc_info=False)
 
     async def _poll_once(self) -> None:
-        # Monitor branch: no Modbus, read live_snapshot from cloud.
-        if self.binding.role == PublisherRole.MONITOR:
+        # Monitor branch: no Modbus, read live_snapshot from cloud — UNLESS this
+        # HA is the sole local controller of its own inverter (local_control).
+        # In that case a DIFFERENT agent is the tenant master for a DIFFERENT
+        # inverter (e.g. a Victron pi-daemon) and never reads this dongle, so we
+        # keep polling Modbus and publishing device_telemetry here. live_snapshot
+        # still stays master-only — enforced in the publish gate + _publish_safe.
+        if self.binding.role == PublisherRole.MONITOR and not self.binding.local_control:
             await self._poll_once_monitor()
             return
 
@@ -608,8 +613,10 @@ class HaMaster:
                 self.binding.state = BindingState.ADOPTED
                 await self._refresh_role()
                 # If we became monitor after adopting, route this cycle
-                # through the cloud-read path.
-                if self.binding.role == PublisherRole.MONITOR:
+                # through the cloud-read path — unless local_control, in which
+                # case we keep polling Modbus (this HA is the sole reader of its
+                # own dongle; the tenant master is a different agent).
+                if self.binding.role == PublisherRole.MONITOR and not self.binding.local_control:
                     await self._poll_once_monitor()
                     return
             else:
@@ -758,9 +765,11 @@ class HaMaster:
             except Exception:
                 _LOGGER.exception("reading listener crashed")
 
-        # Publish if master + adopted. Local mode never publishes —
-        # by definition nothing leaves the LAN.
-        if not self._local_only and self.binding.can_publish:
+        # Publish when master (live_snapshot + device_telemetry) OR a
+        # local-control monitor (device_telemetry ONLY — live_snapshot stays the
+        # tenant master's). _publish_safe splits the two by can_publish. Local
+        # mode never publishes — by definition nothing leaves the LAN.
+        if not self._local_only and (self.binding.can_publish or self.binding.local_control):
             await self._publish_safe(self._latest_shape, readings)
 
     async def _poll_once_monitor(self) -> None:
@@ -864,30 +873,41 @@ class HaMaster:
         shape: SystemShape,
         readings: list[CanonicalReading],
     ) -> None:
-        try:
-            response = await self._cloud.publish_lan_snapshot(shape)
-            # Response (migration 045) is `{solar_today_kwh,
-            # house_daily_kwh, asof, role, wrote}`. Capture the two
-            # forecast values for the next poll's snapshot + the
-            # forecast sensor entities. Both may be null (no forecast
-            # row for today, or no `daily_consumption_kwh` in tenant
-            # prefs) — pass through verbatim.
-            if isinstance(response, dict):
-                self._forecast["solar_today_kwh"] = _coerce_float(
-                    response.get("solar_today_kwh")
-                )
-                self._forecast["house_daily_kwh"] = _coerce_float(
-                    response.get("house_daily_kwh")
-                )
-        except Exception as exc:
-            _LOGGER.warning("publish_lan_snapshot failed: %s", exc)
+        # live_snapshot is MASTER-ONLY (the tenant's single live view). A
+        # local-control monitor skips it (the server would drop it anyway,
+        # migration 045) and publishes device_telemetry only.
+        if self.binding.can_publish:
+            try:
+                response = await self._cloud.publish_lan_snapshot(shape)
+                # Response (migration 045) is `{solar_today_kwh,
+                # house_daily_kwh, asof, role, wrote}`. Capture the two
+                # forecast values for the next poll's snapshot + the
+                # forecast sensor entities. Both may be null (no forecast
+                # row for today, or no `daily_consumption_kwh` in tenant
+                # prefs) — pass through verbatim.
+                if isinstance(response, dict):
+                    self._forecast["solar_today_kwh"] = _coerce_float(
+                        response.get("solar_today_kwh")
+                    )
+                    self._forecast["house_daily_kwh"] = _coerce_float(
+                        response.get("house_daily_kwh")
+                    )
+            except Exception as exc:
+                _LOGGER.warning("publish_lan_snapshot failed: %s", exc)
+        # device_telemetry is published by BOTH master and local-control monitor
+        # (the RPC accepts monitor writes — energy-monitor migration 092). This
+        # is what keeps the GivEnergy live on the dashboard when a Victron
+        # pi-daemon is the tenant master.
         if readings:
             try:
                 await self._cloud.publish_device_telemetry(readings)
             except Exception as exc:
                 _LOGGER.warning("publish_device_telemetry failed: %s", exc)
         self._last_publish_ok_at = datetime.now(timezone.utc)
-        if self.binding.state == BindingState.ADOPTED:
+        # PUBLISHING state means "master, actively writing the live view". A
+        # local-control monitor stays ADOPTED (it writes telemetry but not the
+        # live_snapshot), so only advance the state for a master.
+        if self.binding.is_master and self.binding.state == BindingState.ADOPTED:
             self.binding.state = BindingState.PUBLISHING
 
     async def _role_refresh_loop(self) -> None:
