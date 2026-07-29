@@ -547,6 +547,23 @@ class HaMaster:
         except Exception:
             return False
 
+    def _local_control_enabled(self) -> bool:
+        """Allow HA to control its OWN inverter while it is a tenant MONITOR.
+
+        OFF by default → control stays master-only, so GE-only / HA-master
+        installs are unchanged. Enable per-install via `BIRDY_HA_LOCAL_CONTROL=1`
+        OR a `<config>/.birdy_local_control` marker file (the file is easier on
+        a docker-run HA). Use ONLY where this HA is the sole controller of its
+        inverter and a *different* agent is the tenant master (e.g. a Victron
+        pi-daemon) — there is no write race in that topology. It relaxes
+        can_control only; live_snapshot stays master-only (can_publish)."""
+        if os.getenv("BIRDY_HA_LOCAL_CONTROL") == "1":
+            return True
+        try:
+            return os.path.exists(self._hass.config.path(".birdy_local_control"))
+        except Exception:
+            return False
+
     async def _poll_loop(self) -> None:
         """Main telemetry poll. Drives binding state from Adopted →
         Publishing on first successful publish; survives transient
@@ -893,6 +910,10 @@ class HaMaster:
             return
         role = await self._cloud.get_my_pi_role()
         self.binding.role = role
+        # Re-resolve the local-control opt-in each refresh (cheap; picks up a
+        # marker file dropped after startup). No-op for masters (can_control is
+        # already true via is_master); only matters when demoted to monitor.
+        self.binding.local_control = self._local_control_enabled()
         self.binding.last_role_check = datetime.now(timezone.utc)
 
     async def _diagnostics_loop(self) -> None:

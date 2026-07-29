@@ -147,6 +147,15 @@ class InverterBinding:
     inverter: Optional[InverterIdentity] = None
     last_role_check: Optional[datetime] = None
     last_published_at: Optional[datetime] = None
+    # Opt-in: this HA is the SOLE local controller of its own inverter even
+    # when it is a tenant MONITOR — i.e. a different agent (e.g. a Victron
+    # pi-daemon) is the tenant master for a DIFFERENT inverter, but HA remains
+    # the only thing writing this GivEnergy dongle. Resolved once at startup in
+    # runtime (BIRDY_HA_LOCAL_CONTROL=1 or a `<config>/.birdy_local_control`
+    # marker). Default False → control stays master-only, so GE-only /
+    # HA-master installs are byte-for-byte unchanged. Only relaxes can_control;
+    # can_publish (live_snapshot) stays master-only regardless.
+    local_control: bool = False
 
     @property
     def is_master(self) -> bool:
@@ -163,11 +172,21 @@ class InverterBinding:
     def can_control(self) -> bool:
         """Whether HA-initiated writes to the inverter should fire.
 
-        Monitors don't write (they'd race the master); unprovisioned
-        / provisioned states don't write either (nothing's claimed
-        ownership yet).
+        Adopted + master always may. An adopted MONITOR may too, but ONLY
+        when `local_control` is set (opt-in, default off) — the case where a
+        different agent is the tenant master for a different inverter while
+        HA stays the sole local controller of its own dongle. There is no
+        write race in that topology (the tenant master never touches this
+        inverter). Unprovisioned / provisioned states never control.
+
+        NOTE: this deliberately does NOT gate on can_publish — a monitor with
+        local_control controls its inverter but still must NOT write
+        live_snapshot (that stays master-only via can_publish), so the tenant
+        master keeps the single authoritative live view.
         """
-        return self.can_publish
+        if self.state not in {BindingState.ADOPTED, BindingState.PUBLISHING}:
+            return False
+        return self.is_master or self.local_control
 
 
 @dataclass
