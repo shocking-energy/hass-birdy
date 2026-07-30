@@ -184,8 +184,16 @@ class SettingsAdapter:
             values["maxOutputPowerPct"] = _safe_attr(inv, "active_power_rate", int)
             # exportPowerLimit lives at HR(26) — the library exposes it as
             # `grid_port_max_power_output` (watts). This is the GivEnergy
-            # portal's "Export Limit"; 0 = no grid export.
-            values["exportPowerLimit"] = _safe_attr(inv, "grid_port_max_power_output", int)
+            # portal's "Export Limit"; 0 = no grid export. DEFENSIVE: accessing
+            # an HR that wasn't in the read set can raise a non-AttributeError
+            # (which _safe_attr's getattr-default does NOT catch); it must never
+            # abort the whole settings build — that would zero EVERY control.
+            try:
+                _epl = _safe_attr(inv, "grid_port_max_power_output", int)
+                if _epl is not None:
+                    values["exportPowerLimit"] = _epl
+            except Exception:  # noqa: BLE001 - never let one register break the read
+                pass
 
             # Times — 1.x exposes charge/discharge_slot_N as TimeSlot
             # objects (.start/.end) rather than the 0.x _start/_end
