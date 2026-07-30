@@ -182,6 +182,10 @@ class SettingsAdapter:
             # leave the key out of the snapshot in that case so the
             # entity stays "unknown" rather than reporting a fake 0.
             values["maxOutputPowerPct"] = _safe_attr(inv, "active_power_rate", int)
+            # exportPowerLimit lives at HR(26) — the library exposes it as
+            # `grid_port_max_power_output` (watts). This is the GivEnergy
+            # portal's "Export Limit"; 0 = no grid export.
+            values["exportPowerLimit"] = _safe_attr(inv, "grid_port_max_power_output", int)
 
             # Times — 1.x exposes charge/discharge_slot_N as TimeSlot
             # objects (.start/.end) rather than the 0.x _start/_end
@@ -438,6 +442,13 @@ class SettingsAdapter:
             from givenergy_modbus.pdu import WriteHoldingRegisterRequest
             pct = max(0, min(100, int(value)))
             requests = [WriteHoldingRegisterRequest(register=50, value=pct)]
+        elif key == "exportPowerLimit":
+            # Grid export limit in watts — HR(26) grid_port_max_power_output
+            # (the portal's "Export Limit"). 0 = no export. HR(26) is allowed
+            # via the _lib_patches allowlist add. uint16, so clamp 0-65535.
+            from givenergy_modbus.pdu import WriteHoldingRegisterRequest
+            watts = max(0, min(0xFFFF, int(value)))
+            requests = [WriteHoldingRegisterRequest(register=26, value=watts)]
         elif key == "acChargeStart":
             end = self._cache.get("acChargeEnd") or time(5, 0)
             requests = cmd.set_charge_slot_1(TimeSlot(start=value, end=end))

@@ -235,6 +235,30 @@ CONTROL_ENTITY_KEYS: dict[str, dict] = {
         "unit": "%",
         "icon": "mdi:flash",
     },
+    # Grid export limit in WATTS — HR(26) grid_port_max_power_output, the
+    # register the GivEnergy portal calls "Export Limit". Enforced against the
+    # grid CT (net export at the meter), so house supply from battery/solar
+    # continues and only surplus EXPORT is curtailed. 0 = no export (panels
+    # clip when the battery's full). NOT the same as maxOutputPowerPct, which
+    # caps the inverter's TOTAL output. Max 6000 = the inverter default / the
+    # observed unlimited value on the HY5.0.
+    "exportPowerLimit": {
+        "type": CONTROL_KEY_NUMBER,
+        "min": 0,
+        "max": 6000,
+        "step": 100,
+        "unit": "W",
+        "icon": "mdi:transmission-tower-export",
+        "desc": (
+            "Maximum power the inverter may export to the grid, in watts. "
+            "Set to 0 to stop all grid export — the inverter curtails surplus "
+            "solar when the battery is full while still powering the house. "
+            "Enforced against the grid CT; requires the CT fitted and working "
+            "(if the meter is configured but disconnected the inverter shuts "
+            "down to prevent uncontrolled export). This is the DNO/G99 export "
+            "limit; it is separate from 'Max output power'."
+        ),
+    },
     # ── Times ──
     "acChargeStart": {"type": CONTROL_KEY_TIME, "icon": "mdi:clock-start"},
     "acChargeEnd": {"type": CONTROL_KEY_TIME, "icon": "mdi:clock-end"},
@@ -265,6 +289,7 @@ CONTROL_ENTITY_NAMES = {
     # implied a universal cap and confused users.
     "chargeRate": "AC charge rate",
     "dischargeRate": "AC discharge rate",
+    "exportPowerLimit": "Export power limit",
     "ecoMode": "Eco mode",
     "batteryMode": "Battery mode",
     "maxOutputPowerPct": "Max output power",

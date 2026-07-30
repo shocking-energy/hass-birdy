@@ -147,7 +147,38 @@ def _patch_givenergy_modbus_shape_hash_collision() -> None:
     )
 
 
+def _patch_allow_export_limit_write() -> None:
+    """Allow writing HR(26) grid_port_max_power_output (the "Export Limit").
+
+    givenergy-modbus gates raw holding-register writes behind
+    `WRITE_SAFE_REGISTERS` (checked in WriteHoldingRegisterRequest.
+    ensure_valid_state); HR(26) is not on that list, so a plain
+    WriteHoldingRegisterRequest(register=26, ...) raises InvalidPduState
+    ("HR(26) is not safe to write to"). HR(26) IS a legitimate, documented
+    settings register — GivTCP reads it as `Export_Limit`, the original
+    library annotates it `P_GRID_PORT_MAX_OUTPUT # Export limit`, and it is
+    what the GivEnergy portal's Export Limitation writes. We add it to the
+    allowlist so the `exportPowerLimit` control can write it.
+
+    Verified: read HR(26)=6000 then wrote 0 with read-back on David Bird's
+    GIV-HY5.0 (library 1.3.0), 2026-07-30. Value is a plain uint16 watts.
+    Idempotent. Drop when the library adds HR(26) to its own allowlist.
+    """
+    key = "allow_export_limit_write"
+    if key in _APPLIED:
+        return
+    try:
+        from givenergy_modbus.pdu import write_registers
+    except ImportError:
+        _LOGGER.debug("givenergy-modbus not importable yet; skipping %s", key)
+        return
+    write_registers.WRITE_SAFE_REGISTERS.add(26)
+    _APPLIED.add(key)
+    _LOGGER.info("Applied export-limit write patch (HR26 added to WRITE_SAFE_REGISTERS)")
+
+
 def apply_all() -> None:
     """Apply every patch. Safe to call multiple times."""
     _patch_givenergy_modbus_multi_battery()
     _patch_givenergy_modbus_shape_hash_collision()
+    _patch_allow_export_limit_write()

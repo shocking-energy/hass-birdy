@@ -80,6 +80,7 @@ class BirdyNumber(CoordinatorEntity, NumberEntity):
         self._attr_native_max_value = spec["max"]
         self._attr_native_step = spec["step"]
         self._attr_native_unit_of_measurement = spec["unit"]
+        self._desc = spec.get("desc")
 
     @property
     def native_value(self) -> Optional[float]:
@@ -96,14 +97,18 @@ class BirdyNumber(CoordinatorEntity, NumberEntity):
 
     @property
     def extra_state_attributes(self) -> Optional[dict[str, Any]]:
+        attrs: dict[str, Any] = {}
+        # A per-control human description (shown in the entity's more-info
+        # dialog), for controls that carry one — e.g. the export limit.
+        if self._desc:
+            attrs["description"] = self._desc
         # For the amp-based rate controls, surface the calculated watts
         # (amps x ~52 W/A nominal) alongside the native current value.
-        if self._attr_native_unit_of_measurement != "A":
-            return None
-        v = self.native_value
-        if v is None:
-            return None
-        return {"calculated_power_w": round(v * CHARGE_RATE_W_PER_RAW)}
+        if self._attr_native_unit_of_measurement == "A":
+            v = self.native_value
+            if v is not None:
+                attrs["calculated_power_w"] = round(v * CHARGE_RATE_W_PER_RAW)
+        return attrs or None
 
     @property
     def available(self) -> bool:
