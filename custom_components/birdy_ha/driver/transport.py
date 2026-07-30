@@ -363,7 +363,10 @@ class ModbusTransport:
                 await asyncio.sleep(MODBUS_INTER_CALL_GAP_S)
                 return list(resp.register_values)
             except BaseException:
-                await self._close_quietly()
+                # A best-effort single-register read that times out (the
+                # single-shot dongle is fussy about out-of-band reads) must NOT
+                # tear down the shared connection — that would thrash the poll.
+                # Just give up quietly; the caller treats None as "no value".
                 return None
 
     async def close(self) -> None:
