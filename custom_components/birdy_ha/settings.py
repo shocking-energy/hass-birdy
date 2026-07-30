@@ -187,10 +187,14 @@ class SettingsAdapter:
             # model's dynamic attr for HR(26) raises even after a full refresh
             # (unlike HR50/active_power_rate), so read the raw register directly
             # over the same connection. Best-effort: never let it break the read.
+            # Read base=26,count=1 (NOT 0/60): the poll already issues a
+            # base=0/count=60 holding read, and the client dedups reads by
+            # (slave, base, count) shape — an identical 0/60 read collides and
+            # gets cancelled. A unique 26/1 shape reads cleanly.
             try:
-                _blk = await transport.read_holding(0, 60)
-                if _blk is not None and len(_blk) > 26 and _blk[26] is not None:
-                    values["exportPowerLimit"] = int(_blk[26])
+                _blk = await transport.read_holding(26, 1)
+                if _blk and _blk[0] is not None:
+                    values["exportPowerLimit"] = int(_blk[0])
             except Exception:  # noqa: BLE001 - one register must never zero the rest
                 pass
 
