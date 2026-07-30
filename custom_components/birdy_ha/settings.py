@@ -187,16 +187,12 @@ class SettingsAdapter:
             # model's dynamic attr for HR(26) raises even after a full refresh
             # (unlike HR50/active_power_rate), so read the raw register directly
             # over the same connection. Best-effort: never let it break the read.
-            # Read base=26,count=1 (NOT 0/60): the poll already issues a
-            # base=0/count=60 holding read, and the client dedups reads by
-            # (slave, base, count) shape — an identical 0/60 read collides and
-            # gets cancelled. A unique 26/1 shape reads cleanly.
-            try:
-                _blk = await transport.read_holding(26, 1)
-                if _blk and _blk[0] is not None:
-                    values["exportPowerLimit"] = int(_blk[0])
-            except Exception:  # noqa: BLE001 - one register must never zero the rest
-                pass
+            # exportPowerLimit (HR26 "Export Limit"): this inverter won't surface
+            # HR26 back over the single-client dongle (the model attr raises and
+            # an out-of-band read is unreliable), so show it OPTIMISTICALLY —
+            # seed 0 and keep whatever was last written to self._cache. The write
+            # itself still lands on the register; only the read-back is optimistic.
+            values["exportPowerLimit"] = self._cache.get("exportPowerLimit", 0)
 
             # Times — 1.x exposes charge/discharge_slot_N as TimeSlot
             # objects (.start/.end) rather than the 0.x _start/_end
@@ -270,6 +266,10 @@ class SettingsAdapter:
                     values[key] = time(int(hh), int(mm))
                 except (ValueError, TypeError):
                     pass
+
+        # exportPowerLimit isn't in the projected config block — surface it
+        # optimistically (seed 0; keep the last-written value from self._cache).
+        values["exportPowerLimit"] = self._cache.get("exportPowerLimit", 0)
 
         filtered = {k: v for k, v in values.items() if v is not None}
         self._cache = {**self._cache, **filtered}
