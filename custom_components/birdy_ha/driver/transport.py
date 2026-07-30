@@ -343,6 +343,29 @@ class ModbusTransport:
                 await self._close_quietly()
                 raise
 
+    async def read_holding(self, base: int, count: int) -> Optional[list]:
+        """Read one holding-register block via the LIVE connection and return
+        the raw register_values list (or None on failure).
+
+        Used for settings registers the plant model doesn't surface reliably —
+        e.g. HR(26) export limit, whose dynamic model attr raises even after a
+        full refresh. Serialised on `self._lock` so it never races the poll or
+        a write, and reuses the existing client (no fresh socket → no
+        single-shot-dongle contention), exactly like one_shot_command."""
+        from givenergy_modbus.pdu import ReadHoldingRegistersRequest
+        async with self._lock:
+            client = await self._ensure_connected()
+            try:
+                resp = await client.send_request_and_await_response(
+                    ReadHoldingRegistersRequest(base_register=base, register_count=count),
+                    timeout=10.0, retries=1,
+                )
+                await asyncio.sleep(MODBUS_INTER_CALL_GAP_S)
+                return list(resp.register_values)
+            except BaseException:
+                await self._close_quietly()
+                return None
+
     async def close(self) -> None:
         if self._client is not None and self._connected:
             try:

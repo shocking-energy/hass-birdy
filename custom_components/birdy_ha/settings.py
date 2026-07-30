@@ -182,17 +182,16 @@ class SettingsAdapter:
             # leave the key out of the snapshot in that case so the
             # entity stays "unknown" rather than reporting a fake 0.
             values["maxOutputPowerPct"] = _safe_attr(inv, "active_power_rate", int)
-            # exportPowerLimit lives at HR(26) — the library exposes it as
-            # `grid_port_max_power_output` (watts). This is the GivEnergy
-            # portal's "Export Limit"; 0 = no grid export. DEFENSIVE: accessing
-            # an HR that wasn't in the read set can raise a non-AttributeError
-            # (which _safe_attr's getattr-default does NOT catch); it must never
-            # abort the whole settings build — that would zero EVERY control.
+            # exportPowerLimit = HR(26) grid_port_max_power_output (watts) — the
+            # GivEnergy portal's "Export Limit"; 0 = no grid export. The plant
+            # model's dynamic attr for HR(26) raises even after a full refresh
+            # (unlike HR50/active_power_rate), so read the raw register directly
+            # over the same connection. Best-effort: never let it break the read.
             try:
-                _epl = _safe_attr(inv, "grid_port_max_power_output", int)
-                if _epl is not None:
-                    values["exportPowerLimit"] = _epl
-            except Exception:  # noqa: BLE001 - never let one register break the read
+                _blk = await transport.read_holding(0, 60)
+                if _blk is not None and len(_blk) > 26 and _blk[26] is not None:
+                    values["exportPowerLimit"] = int(_blk[26])
+            except Exception:  # noqa: BLE001 - one register must never zero the rest
                 pass
 
             # Times — 1.x exposes charge/discharge_slot_N as TimeSlot
