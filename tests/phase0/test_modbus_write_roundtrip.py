@@ -207,19 +207,23 @@ SETTINGS_UNDER_TEST: list[dict[str, Any]] = [
         "samples": [time(23, 0), time(23, 59)],
     },
     {
+        # HR110 battery_soc_reserve — ECO floor (GE "Battery Reserve % Limit").
+        # Mapping fixed 2026-08-04: was crossed with batteryCutoff.
         "key": "batteryReserve",
-        "type": "int",
-        "writer": lambda c, v: c.set_battery_power_reserve(v),
-        "reader": lambda c: int(
-            getattr(_refresh(c), "battery_power_reserve", 0)
-        ),
-        "samples": [5, 15, 30],
-    },
-    {
-        "key": "batteryCutoff",
         "type": "int",
         "writer": lambda c, v: c.set_shallow_charge(v),
         "reader": lambda c: int(getattr(_refresh(c), "battery_soc_reserve", 0)),
+        "samples": [5, 15, 30],
+    },
+    {
+        # HR114 battery_discharge_min_power_reserve — TIMED-DISCHARGE/EXPORT
+        # floor (GE "Battery Cutoff % Limit").
+        "key": "batteryCutoff",
+        "type": "int",
+        "writer": lambda c, v: c.set_battery_power_reserve(v),
+        "reader": lambda c: int(
+            getattr(_refresh(c), "battery_discharge_min_power_reserve", 0)
+        ),
         "samples": [4, 10, 20],
     },
     {

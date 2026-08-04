@@ -350,8 +350,16 @@ def build_snapshot_row(plant, opts: Dict[str, Any]) -> Dict[str, Any]:
             "dcDischarge1End": _slot_hhmm(discharge_slot_1[1]),
             "dcDischarge2Start": _slot_hhmm(discharge_slot_2[0]),
             "dcDischarge2End": _slot_hhmm(discharge_slot_2[1]),
+            # Same mapping as settings.py (fixed 2026-08-04 — batteryCutoff was
+            # a hardcoded 0 and settings.py had the two registers crossed, so
+            # the "Battery reserve" entity read HR110 here but WROTE HR114):
+            #   batteryReserve = HR110 battery_soc_reserve (eco floor)
+            #   batteryCutoff  = HR114 battery_discharge_min_power_reserve
+            #                    (timed-discharge/export floor)
             "batteryReserve": _num(getattr(inv, "battery_soc_reserve", 0)),
-            "batteryCutoff": 0,
+            "batteryCutoff": _num(
+                getattr(inv, "battery_discharge_min_power_reserve", 0)
+            ),
             # The Modbus registers hold an integer 0-50 that maps to inverter
             # power at ~100 W/unit (raw 50 = 5 kW = the HY-5.0's rating).
             # Verified on David's HY-5.0 (2026-07-17): raw 10 → ~1 kW. A single

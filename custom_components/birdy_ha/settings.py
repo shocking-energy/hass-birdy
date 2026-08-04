@@ -160,11 +160,18 @@ class SettingsAdapter:
             else:
                 values["batteryMode"] = BATTERY_MODE_TIMED_DISCHARGE
 
-            # Numbers.
-            values["batteryReserve"] = _safe_attr(
+            # Numbers. Mapping matches the GE portal's naming (fixed 2026-08-04
+            # — these were CROSSED, and shape.py disagreed with this block, so
+            # the "Battery reserve" entity displayed HR110 but wrote HR114:
+            # every user edit appeared to "revert" on the next poll):
+            #   batteryReserve = HR110 battery_soc_reserve
+            #     (GE "Battery Reserve % Limit" — the ECO-mode floor)
+            #   batteryCutoff  = HR114 battery_discharge_min_power_reserve
+            #     (GE "Battery Cutoff % Limit" — the TIMED-DISCHARGE/EXPORT floor)
+            values["batteryReserve"] = _safe_attr(inv, "battery_soc_reserve", int)
+            values["batteryCutoff"] = _safe_attr(
                 inv, "battery_discharge_min_power_reserve", int,
             )
-            values["batteryCutoff"] = _safe_attr(inv, "battery_soc_reserve", int)
             # Convert the raw 0-100 register tick to Watts (× 52 on
             # GIV-HY5.0). pi-daemon's shape.py emits the same Watts
             # value in live_snapshot.config.chargeRate so monitor +
@@ -430,9 +437,13 @@ class SettingsAdapter:
             else:
                 raise ValueError(f"unknown batteryMode {value!r}")
         elif key == "batteryReserve":
-            requests = cmd.set_battery_power_reserve(int(value))
-        elif key == "batteryCutoff":
+            # HR110 battery_soc_reserve — the ECO floor (GE "Battery Reserve %
+            # Limit"). Was crossed with batteryCutoff (see the read block).
             requests = cmd.set_shallow_charge(int(value))
+        elif key == "batteryCutoff":
+            # HR114 battery_discharge_min_power_reserve — the TIMED-DISCHARGE/
+            # EXPORT floor (GE "Battery Cutoff % Limit").
+            requests = cmd.set_battery_power_reserve(int(value))
         elif key == "chargeRate":
             # UI value is amps (0-50) = the native register directly.
             raw = max(0, min(50, int(round(float(value)))))
