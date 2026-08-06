@@ -494,8 +494,15 @@ class SettingsAdapter:
 
         await transport.one_shot_command(requests)
 
+    # A stable confirm-mismatch retries the WRITE this many times before
+    # reverting. The dongle drops frames (documented flaky), so a silently
+    # lost write is the common cause of "my change reverted a few seconds
+    # later" — re-issuing the same write usually lands on the 2nd attempt.
+    _WRITE_RETRY_MAX = 2
+
     async def _confirm_write(
         self, key: str, expected: Any, previous: Any, write_seq: int,
+        attempt: int = 0,
     ) -> None:
         await asyncio.sleep(SETTINGS_WRITE_CONFIRM_DELAY_S)
 
@@ -544,9 +551,29 @@ class SettingsAdapter:
             _LOGGER.info("apply_setting %s confirmed on re-read (=%s)", key, observed)
             return
 
+        # (2d) STABLE mismatch — but don't surrender yet: the dongle drops
+        # frames, so the most likely story is the WRITE never landed. Re-issue
+        # the same write (same seq — a newer user write still supersedes us)
+        # and confirm again, up to _WRITE_RETRY_MAX times. Only a mismatch
+        # that survives the retries becomes a revert.
+        if attempt < self._WRITE_RETRY_MAX:
+            transport = self._master.transport
+            if transport is not None:
+                _LOGGER.warning(
+                    "apply_setting %s mismatch (expected=%s observed=%s) — retrying write (%d/%d)",
+                    key, expected, observed, attempt + 1, self._WRITE_RETRY_MAX,
+                )
+                try:
+                    await self._issue_write(transport, key, expected)
+                except Exception as exc:
+                    _LOGGER.warning("apply_setting %s retry write failed: %s", key, exc)
+                asyncio.create_task(
+                    self._confirm_write(key, expected, previous, write_seq, attempt + 1))
+                return
+
         _LOGGER.warning(
-            "apply_setting %s reverted (expected=%s observed=%s, stable) — restoring cache",
-            key, expected, observed,
+            "apply_setting %s reverted (expected=%s observed=%s, stable after %d retries) — restoring cache",
+            key, expected, observed, attempt,
         )
         self._cache[key] = previous
         self._cache_asof = datetime.now(timezone.utc)
