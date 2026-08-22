@@ -89,6 +89,22 @@ def _coerce_float(value: Any) -> Optional[float]:
         return None
 
 
+def _is_uuid(value: Any) -> bool:
+    """True when value is a real UUID string.
+
+    Guards the device_telemetry publish: the RPC casts device_id to
+    uuid, so a placeholder like "local" makes Postgres reject the whole
+    batch (22P02) rather than the one bad field.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        uuid.UUID(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 def _parse_iso(value: Any) -> Optional[datetime]:
     """Best-effort parse of Supabase's ISO8601 strings (handles the
     trailing `Z` plus PG fractional-second forms like `+00:00`).
@@ -169,6 +185,12 @@ class HaMaster:
         self._latest_settings: Optional[SettingsSnapshot] = None
         self._last_modbus_ok_at: Optional[datetime] = None
         self._last_publish_ok_at: Optional[datetime] = None
+        # Memoised `devices.id` for this Pi's inverter, keyed by the serial
+        # it was resolved for. The lookup is a cloud round-trip and the
+        # answer never changes for a given serial, so re-fetching it on
+        # every poll cycle (~4,300/day) was both wasteful and the trigger
+        # for a real data-loss bug — see _resolve_inverter_device_id().
+        self._device_id_cache: dict[str, str] = {}
         # Forecast values returned by publish_lan_snapshot (migration 034,
         # 045) — solar generation forecast for today + the tenant's stated
         # daily house consumption. Captured on every successful publish
@@ -898,11 +920,27 @@ class HaMaster:
         # (the RPC accepts monitor writes — energy-monitor migration 092). This
         # is what keeps the GivEnergy live on the dashboard when a Victron
         # pi-daemon is the tenant master.
-        if readings:
+        # Only publish rows carrying a REAL devices.id. The poll loop builds
+        # readings unconditionally — with device_id="local" when the lookup
+        # hasn't resolved — so local-mode entities still render. But the RPC
+        # casts device_id to uuid, so "local" raised 22P02 and Postgres threw
+        # out the WHOLE cycle: ~18-20 readings/day silently lost on David's
+        # tenant (297 over 16 days), every one confirmed as a matching hole in
+        # device_telemetry. `_local_only` guards the no-cloud case; it does
+        # NOT guard "cloud mode, lookup just failed", which is what bit us.
+        # Skipping is right: the next cycle is 20 s away and carries the same
+        # state. The monitor path at _poll_monitor_publish already did this.
+        publishable = [r for r in readings if _is_uuid(r.device_id)]
+        if publishable:
             try:
-                await self._cloud.publish_device_telemetry(readings)
+                await self._cloud.publish_device_telemetry(publishable)
             except Exception as exc:
                 _LOGGER.warning("publish_device_telemetry failed: %s", exc)
+        elif readings:
+            _LOGGER.debug(
+                "skipping device_telemetry publish — inverter device_id "
+                "unresolved (%d readings held back)", len(readings),
+            )
         self._last_publish_ok_at = datetime.now(timezone.utc)
         # PUBLISHING state means "master, actively writing the live view". A
         # local-control monitor stays ADOPTED (it writes telemetry but not the
@@ -988,6 +1026,15 @@ class HaMaster:
         """
         if self.binding.tenant_id is None or self.binding.inverter is None:
             return None
+        serial = (self.binding.inverter.inverter_serial or "").upper()
+        if not serial:
+            return None
+        # Serve from cache when we've already resolved THIS serial. The id
+        # is immutable for a given inverter, so the only reason to re-ask
+        # is a serial change (kit swapped) — which keys a fresh entry.
+        cached = self._device_id_cache.get(serial)
+        if cached:
+            return cached
         # Tenant scoping handled by RLS via get_my_tenant_id() — no
         # explicit tenant_id filter needed. The inverter serial is
         # LAN-sourced (whatever the Modbus device returns) so we pass
@@ -1000,9 +1047,7 @@ class HaMaster:
             params = {
                 "device_type": "eq.inverter",
                 "manufacturer": "eq.givenergy",
-                "serial_number": (
-                    f"eq.{self.binding.inverter.inverter_serial.upper()}"
-                ),
+                "serial_number": f"eq.{serial}",
                 "select": "id",
             }
             async with self._cloud._session.get(  # type: ignore[union-attr]
@@ -1012,7 +1057,10 @@ class HaMaster:
                     return None
                 rows = await resp.json()
                 if rows and isinstance(rows, list):
-                    return rows[0].get("id")
+                    device_id = rows[0].get("id")
+                    if device_id:
+                        self._device_id_cache[serial] = device_id
+                    return device_id
         except Exception:
             return None
         return None
