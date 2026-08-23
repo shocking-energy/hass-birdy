@@ -196,10 +196,17 @@ class SettingsAdapter:
             # over the same connection. Best-effort: never let it break the read.
             # exportPowerLimit (HR26 "Export Limit"): this inverter won't surface
             # HR26 back over the single-client dongle (the model attr raises and
-            # an out-of-band read is unreliable), so show it OPTIMISTICALLY —
-            # seed 0 and keep whatever was last written to self._cache. The write
-            # itself still lands on the register; only the read-back is optimistic.
-            values["exportPowerLimit"] = self._cache.get("exportPowerLimit", 0)
+            # an out-of-band read is unreliable), so it's WRITE-ONLY — we know it
+            # only if we set it ourselves this process. The write still lands on
+            # the register; only the read-back is unavailable.
+            #
+            # Seeds to None (key omitted), NOT 0. The old 0 seed fabricated a
+            # reading that said "export disabled" — and because this cache is
+            # in-memory it reappeared on every HA restart, so on a tenant whose
+            # HR26 is set by an external script the field was permanently wrong.
+            # const.py marks the control "optimistic" so the entity stays
+            # settable and renders "unknown" instead.
+            values["exportPowerLimit"] = self._cache.get("exportPowerLimit")
 
             # Times — 1.x exposes charge/discharge_slot_N as TimeSlot
             # objects (.start/.end) rather than the 0.x _start/_end
@@ -274,9 +281,10 @@ class SettingsAdapter:
                 except (ValueError, TypeError):
                     pass
 
-        # exportPowerLimit isn't in the projected config block — surface it
-        # optimistically (seed 0; keep the last-written value from self._cache).
-        values["exportPowerLimit"] = self._cache.get("exportPowerLimit", 0)
+        # exportPowerLimit isn't in the projected config block — it's write-only
+        # (see read_settings). None when we've never written it, so the entity
+        # shows "unknown" rather than a fabricated 0 meaning "export disabled".
+        values["exportPowerLimit"] = self._cache.get("exportPowerLimit")
 
         filtered = {k: v for k, v in values.items() if v is not None}
         self._cache = {**self._cache, **filtered}

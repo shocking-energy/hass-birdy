@@ -81,6 +81,9 @@ class BirdyNumber(CoordinatorEntity, NumberEntity):
         self._attr_native_step = spec["step"]
         self._attr_native_unit_of_measurement = spec["unit"]
         self._desc = spec.get("desc")
+        # Write-only control (see const.py): value is unknowable unless we set
+        # it ourselves, so stay available-but-unknown instead of faking a read.
+        self._optimistic = bool(spec.get("optimistic"))
 
     @property
     def native_value(self) -> Optional[float]:
@@ -117,8 +120,13 @@ class BirdyNumber(CoordinatorEntity, NumberEntity):
         if not super().available:
             return False
         snapshot = self.coordinator.data
-        if snapshot is None or self._key not in snapshot.values:
+        if snapshot is None:
             return False
+        if self._key not in snapshot.values:
+            # An optimistic (write-only) control has no readable value until we
+            # write one. Keep it AVAILABLE so it stays settable; native_value
+            # returns None so HA renders "unknown" rather than a made-up number.
+            return self._optimistic
         return True
 
     async def async_set_native_value(self, value: float) -> None:

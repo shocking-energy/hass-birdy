@@ -249,6 +249,19 @@ CONTROL_ENTITY_KEYS: dict[str, dict] = {
         "step": 100,
         "unit": "W",
         "icon": "mdi:transmission-tower-export",
+        # HR26 can't be read back through the plant model (the attr raises even
+        # after a full refresh), so this control is WRITE-ONLY: we know its value
+        # only if we set it ourselves this process. "optimistic" tells the number
+        # entity to stay available-but-unknown rather than invent a reading.
+        #
+        # It used to seed 0, which was actively dangerous here: 0 means "no grid
+        # export at all" on this inverter, and the in-memory cache resets on every
+        # HA restart — so the field confidently displayed "export disabled" when
+        # the register actually held 2500. Worse, an export limit stuck at 0 IS a
+        # real failure mode (it wedges the GE's MPPT at dawn), so anyone
+        # diagnosing that was sent straight down the wrong path by a fabricated
+        # number. Where the true value matters, read the register out-of-band.
+        "optimistic": True,
         "desc": (
             "Maximum power the inverter may export to the grid, in watts. "
             "Set to 0 to stop all grid export — the inverter curtails surplus "
