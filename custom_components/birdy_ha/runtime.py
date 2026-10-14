@@ -57,6 +57,7 @@ from .low_rate import (
     _LONDON,
 )
 from .export_scheduler import ExportScheduler
+from .ge_schedule import GeScheduleReconciler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -180,6 +181,9 @@ class HaMaster:
         # Time-based battery-mode scheduler (timed_export in-window, eco out).
         # Inert unless enabled (BIRDY_EXPORT_SCHEDULER=1 or a .birdy_export_scheduler marker file) + a DC-discharge window is set.
         self._export_scheduler = ExportScheduler()
+        # Planner Schedule mode → inverter (ge_schedule.py). Inert unless
+        # enabled per install AND the cloud returns a schedule for this home.
+        self._ge_schedule = GeScheduleReconciler()
         self._latest_readings: list[CanonicalReading] = []
         self._latest_shape: Optional[SystemShape] = None
         self._latest_settings: Optional[SettingsSnapshot] = None
@@ -569,6 +573,19 @@ class HaMaster:
         except Exception:
             return False
 
+    def _planner_control_enabled(self) -> bool:
+        """Planner Schedule mode for a GE inverter (ge_schedule.py). OFF by
+        default. Enable per install via `BIRDY_PLANNER_CONTROL=1` OR a
+        `<config>/.birdy_planner_control` marker file. Even when on, nothing is
+        written unless the cloud returns a schedule (home opted in AND in
+        Schedule mode on the Planner page)."""
+        if os.getenv("BIRDY_PLANNER_CONTROL") == "1":
+            return True
+        try:
+            return os.path.exists(self._hass.config.path(".birdy_planner_control"))
+        except Exception:
+            return False
+
     def _local_control_enabled(self) -> bool:
         """Allow HA to control its OWN inverter while it is a tenant MONITOR.
 
@@ -744,10 +761,27 @@ class HaMaster:
         # the tenant self-consumes the evening instead of holding + buying
         # grid. Master + can_control; enabled per-Pi via BIRDY_EXPORT_SCHEDULER=1 or a .birdy_export_scheduler marker file; a
         # transition writes ~twice a day, every other tick is a no-op.
+        # Planner Schedule mode (CONTROL): reconcile the owner's slots from the
+        # Planner page onto the inverter, one safe step per tick. When it holds
+        # a schedule it owns batteryMode, so the export scheduler stands down.
+        planner_control = (
+            self.binding.can_control
+            and not self._local_only
+            and self._planner_control_enabled()
+        )
+        if planner_control:
+            try:
+                await self._ge_schedule.tick(
+                    self, shape_payload.get("config") or {},
+                    now, now.astimezone(_LONDON))
+            except Exception:
+                _LOGGER.debug("GE schedule tick failed", exc_info=True)
+
         if (
             self.binding.can_control
             and not self._local_only
             and self._export_scheduler_enabled()
+            and not (planner_control and self._ge_schedule.active)
         ):
             try:
                 cfg = shape_payload.get("config") or {}

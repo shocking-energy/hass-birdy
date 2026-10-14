@@ -312,10 +312,16 @@ class SettingsAdapter:
         # A human changing the battery mode in HA pauses the export
         # scheduler for its grace period, so the clock doesn't immediately
         # stomp the manual choice. `origin="scheduler"` writes don't.
-        if key == "batteryMode" and origin != "scheduler":
+        if key == "batteryMode" and origin not in ("scheduler", "planner"):
             sched = getattr(self._master, "_export_scheduler", None)
             if sched is not None:
                 sched.note_manual_mode_write(datetime.now(timezone.utc))
+        # Likewise a human changing a setting the Planner's GE schedule owns
+        # pauses that reconciler until the owner saves a new schedule.
+        if origin not in ("scheduler", "planner"):
+            ge_sched = getattr(self._master, "_ge_schedule", None)
+            if ge_sched is not None:
+                ge_sched.note_manual_write(key)
 
         # Master-only — monitors can't write.
         if not self._master.binding.can_control:
@@ -377,6 +383,66 @@ class SettingsAdapter:
         return WriteResult(
             key=key, requested_value=value, observed_value=value, accepted=True,
         )
+
+    async def apply_slot(
+        self, kind: str, n: int, start: time, end: time, origin: str = "user",
+    ) -> WriteResult:
+        """Write a charge/discharge slot's start AND end in ONE command.
+
+        `apply_setting` writes each end separately, composing the other from
+        the cache, so changing a window passes through a half-written state
+        (e.g. clearing 20:00–21:00 transiently gives 20:00–00:00) — harmless
+        for a human nudging one time entity, wrong for the Planner's GE
+        schedule (ge_schedule.py), which uses this instead. 00:00–00:00 clears
+        the slot. No confirm-read here: the caller is level-triggered and
+        re-checks the next poll's read-back.
+        """
+        if kind == "charge" and n == 1:
+            k_start, k_end = "acChargeStart", "acChargeEnd"
+        elif kind == "discharge" and n in (1, 2):
+            k_start, k_end = f"dcDischarge{n}Start", f"dcDischarge{n}End"
+        else:
+            return WriteResult(key=f"{kind}{n}", requested_value=(start, end),
+                               observed_value=None, accepted=False, error="unknown slot")
+        if origin not in ("scheduler", "planner"):
+            ge_sched = getattr(self._master, "_ge_schedule", None)
+            if ge_sched is not None:
+                ge_sched.note_manual_write(k_start)
+        if not self._master.binding.can_control:
+            return WriteResult(key=k_start, requested_value=(start, end), observed_value=None,
+                               accepted=False, error="not bound as master")
+        if not self._check_rate_limit(k_start):
+            return WriteResult(key=k_start, requested_value=(start, end), observed_value=None,
+                               accepted=False, error="rate limit exceeded")
+        transport = self._master.transport
+        if transport is None:
+            return WriteResult(key=k_start, requested_value=(start, end), observed_value=None,
+                               accepted=False, error="transport not connected")
+
+        from givenergy_modbus.client import commands as cmd
+        from givenergy_modbus.model import TimeSlot
+
+        slot = TimeSlot(start=start, end=end)
+        if kind == "charge":
+            requests = cmd.set_charge_slot_1(slot)
+        elif n == 1:
+            requests = cmd.set_discharge_slot_1(slot)
+        else:
+            requests = cmd.set_discharge_slot_2(slot)
+        try:
+            await transport.one_shot_command(requests)
+        except Exception as exc:
+            _LOGGER.warning("apply_slot %s%d write failed: %s", kind, n, exc)
+            return WriteResult(key=k_start, requested_value=(start, end), observed_value=None,
+                               accepted=False, error=str(exc))
+        # Supersede any in-flight per-key confirm for these keys.
+        self._latest_write_seq[k_start] += 1
+        self._latest_write_seq[k_end] += 1
+        self._cache[k_start], self._cache[k_end] = start, end
+        self._cache_asof = datetime.now(timezone.utc)
+        self._fire_settings_listeners()
+        return WriteResult(key=k_start, requested_value=(start, end),
+                           observed_value=(start, end), accepted=True)
 
     def _fire_settings_listeners(self) -> None:
         """Notify the master's registered settings listeners that the
